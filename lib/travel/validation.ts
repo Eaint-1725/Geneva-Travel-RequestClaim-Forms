@@ -5,6 +5,8 @@ export interface ValidationResult {
   isValid: boolean;
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 /** Shared between Travel Request and Travel Claim: both key per-row errors the same way. */
 export function rowFieldKey(tripId: string, rowId: string, field: string): string {
   return `trip.${tripId}.row.${rowId}.${field}`;
@@ -63,6 +65,9 @@ export function validateForm(form: TravelRequestForm): ValidationResult {
   else if (header.exchangeRate <= 0) errors["header.exchangeRate"] = "Exchange rate must be greater than 0";
 
   if (header.team === "MAL" && !header.notes.trim()) errors["header.notes"] = "Notes is required";
+
+  if (!header.email.trim()) errors["header.email"] = "Email is required";
+  else if (!EMAIL_RE.test(header.email.trim())) errors["header.email"] = "Enter a valid email address";
 
   if (trips.length === 0) {
     errors["trips"] = "Add at least one trip";

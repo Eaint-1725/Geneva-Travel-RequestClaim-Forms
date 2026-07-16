@@ -8,6 +8,8 @@ export interface TravelRequestHeader {
   exchangeRate: number | null;
   /** Free-text notes, only shown in the UI and exported to Excel when team === "MAL". */
   notes: string;
+  /** Traveller's own email (personal Gmail expected) — used as Reply-To on the HR notification. */
+  email: string;
 }
 
 export interface Row {

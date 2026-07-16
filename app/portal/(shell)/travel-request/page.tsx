@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 import { calcGrandTotal } from "@/lib/travel/calc";
 import { formatMmk, formatUsd } from "@/lib/travel/format";
@@ -24,10 +25,12 @@ function makeEmptyHeader(): TravelRequestForm["header"] {
     dutyStation: "",
     exchangeRate: null,
     notes: "",
+    email: "",
   };
 }
 
 export default function TravelRequestPage() {
+  const router = useRouter();
   const [header, setHeader] = useState<TravelRequestForm["header"]>(makeEmptyHeader());
   const [trips, setTrips] = useState<Trip[]>([makeEmptyTrip()]);
   const [signature, setSignature] = useState<Signature | null>(null);
@@ -126,28 +129,33 @@ export default function TravelRequestPage() {
 
     setBusy(true);
     try {
-      const res = await fetch("/api/travel/export", {
+      const res = await fetch("/api/travel/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Could not generate the file");
+        throw new Error(body.error ?? "Couldn't email HR — please try again");
       }
       const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const nameMatch = /filename="([^"]+)"/.exec(disposition);
+      const safeName = (header.name || "travel-request").replace(/[^a-z0-9]+/gi, "-");
+      const fileName = nameMatch?.[1] ?? `Travel Request - ${safeName} - ${header.month || "draft"}.xlsx`;
+
+      router.push("/portal/travel-request/success");
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const safeName = (header.name || "travel-request").replace(/[^a-z0-9]+/gi, "-");
-      a.download = `Travel Request - ${safeName} - ${header.month || "draft"}.xlsx`;
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      setNotice("Travel request generated — your download should start automatically.");
     } catch (e) {
-      setApiError(e instanceof Error ? e.message : "Something went wrong generating the file");
+      setApiError(e instanceof Error ? e.message : "Couldn't email HR — please try again");
     } finally {
       setBusy(false);
     }
@@ -279,12 +287,27 @@ export default function TravelRequestPage() {
         <p className="mb-2 text-sm text-gray-500">Draw your signature or upload an image. Required.</p>
         <SignaturePad value={signature} onChange={updateSignature} />
         {showErrors && errors["signature"] && <p className="mt-1 text-xs text-red-600" data-testid="travel-signature-error">{errors["signature"]}</p>}
+
+        <div className="mt-3">
+          <Field label="Your email" error={showErrors ? errors["header.email"] : undefined} width="w-64">
+            <input
+              type="email"
+              className={`${inputCls} w-full`}
+              value={header.email}
+              onChange={(e) => updateHeader("email", e.target.value)}
+              data-testid="travel-email"
+            />
+          </Field>
+          <p className="mt-0.5 text-[11px] text-gray-500">
+            Your own email (personal Gmail is fine) — HR will reply to your travel request here.
+          </p>
+        </div>
       </div>
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5">
         <div className="flex items-center gap-2">
           <Button type="button" variant="primary" onClick={() => void handleSubmit()} disabled={busy || !isValid} data-testid="travel-submit-btn">
-            {busy ? "Generating…" : "Submit travel request"}
+            {busy ? "Sending…" : "Submit travel request"}
           </Button>
           <Button type="button" variant="secondary" onClick={handleClear} disabled={busy} data-testid="travel-clear-btn">
             Clear
