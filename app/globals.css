@@ -1,0 +1,217 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-content text-gray-900 antialiased;
+}
+
+/* SIM-274 rich text — Tailwind preflight strips list markers, so restore them
+   for the editor + viewer, and add a placeholder for the empty editor. */
+.rich-editor ul, .rich-view ul { list-style: disc; margin: 0 0 0 1.25rem; }
+.rich-editor ol, .rich-view ol { list-style: decimal; margin: 0 0 0 1.25rem; }
+.rich-editor a, .rich-view a { color: #2563eb; text-decoration: underline; }
+.rich-editor p, .rich-view p { margin: 0 0 0.4rem; }
+.rich-editor:empty:before { content: attr(data-placeholder); color: #9ca3af; }
+
+/* ---------------------------------------------------------------------------
+   SIM-263 dark theme. Class strategy (<html class="dark">, set pre-paint by
+   the layout's inline script). The light surfaces are remapped here as
+   .dark-scoped overrides of the exact utility classes the app uses — one
+   place, full coverage, instead of per-file dark: variants. The sidebar and
+   modals are already dark (sidebar-* tokens) and unchanged; INDIGO is the
+   exclusive agent colour (SIM-446 retired teal) and green stays primary, both
+   lifted slightly for contrast on dark panels.
+--------------------------------------------------------------------------- */
+.dark {
+  color-scheme: dark; /* native date pickers, scrollbars, etc. */
+}
+.dark body { background-color: #0e1320; color: #d6dbe6; }
+
+/* surfaces */
+.dark .bg-white { background-color: #1a2233; }
+.dark .bg-gray-50 { background-color: #161d2c; }
+.dark .bg-gray-100 { background-color: #232c41; }
+.dark .bg-gray-200 { background-color: #2e3852; }
+.dark .hover\:bg-gray-50:hover { background-color: #1d2536; }
+.dark .hover\:bg-gray-100:hover { background-color: #283248; }
+.dark .focus\:bg-white:focus { background-color: #1a2233; }
+
+/* primary-tinted surfaces (row hovers, selected chips)
+   SIM-618: these still tinted the OLD green primary — SIM-445 re-pointed `primary`
+   to the brand BLUE #2563eb, so dark primary tints are blue now (all fractions). */
+.dark .bg-primary-light { background-color: rgba(37, 99, 235, 0.18); }
+.dark .bg-primary-light\/20 { background-color: rgba(37, 99, 235, 0.07); }
+.dark .bg-primary-light\/30 { background-color: rgba(37, 99, 235, 0.09); }
+.dark .bg-primary-light\/40 { background-color: rgba(37, 99, 235, 0.11); }
+.dark .bg-primary-light\/50 { background-color: rgba(37, 99, 235, 0.13); }
+.dark .bg-primary-light\/60 { background-color: rgba(37, 99, 235, 0.15); }
+.dark .bg-primary-light\/70 { background-color: rgba(37, 99, 235, 0.16); }
+.dark .hover\:bg-primary-light:hover { background-color: rgba(37, 99, 235, 0.26); }
+.dark .hover\:bg-primary-light\/50:hover { background-color: rgba(37, 99, 235, 0.16); }
+.dark .bg-navy\/10 { background-color: rgba(173, 192, 230, 0.12); }
+
+/* text */
+.dark .text-navy { color: #cdd8ee; }
+.dark .hover\:text-navy:hover { color: #e8eefb; }
+.dark .text-gray-900 { color: #e6eaf2; }
+.dark .text-gray-800 { color: #dde2ec; }
+.dark .text-gray-700 { color: #c4cbd9; }
+.dark .text-gray-600 { color: #aab2c4; }
+.dark .hover\:text-gray-600:hover { color: #c4cbd9; }
+.dark .text-gray-500 { color: #8e98ac; }
+.dark .text-gray-400 { color: #707b91; }
+.dark .text-gray-300 { color: #4d586e; }
+.dark .text-primary { color: #60a5fa; } /* SIM-618: primary is BLUE since SIM-445 (was green) */
+.dark .hover\:text-primary:hover { color: #93c5fd; }
+.dark .text-agent { color: #a5b4fc; } /* SIM-446: indigo-300 (was teal #2dd4bf) */
+
+/* borders */
+.dark .border-gray-100 { border-color: #232c41; }
+.dark .border-gray-200 { border-color: #2c3650; }
+.dark .border-gray-300 { border-color: #3a4663; }
+.dark .border-agent\/40 { border-color: rgba(129, 140, 248, 0.4); } /* SIM-446: indigo (was teal) */
+.dark .bg-agent-light\/40 { background-color: rgba(79, 70, 229, 0.14); } /* SIM-446: indigo (was teal) */
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #232c41; }
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: #2c3650; }
+
+/* status chips: translucent fills + lifted text on dark */
+.dark .bg-blue-100 { background-color: rgba(59, 130, 246, 0.18); }
+.dark .text-blue-700 { color: #93c5fd; }
+.dark .bg-green-100 { background-color: rgba(34, 197, 94, 0.18); }
+.dark .text-green-700 { color: #86efac; }
+.dark .bg-amber-100, .dark .bg-amber-50 { background-color: rgba(245, 158, 11, 0.16); }
+.dark .text-amber-700, .dark .text-amber-800 { color: #fcd34d; }
+.dark .text-amber-600 { color: #fbbf24; }
+.dark .bg-red-100, .dark .bg-red-50 { background-color: rgba(239, 68, 68, 0.16); }
+.dark .text-red-700 { color: #fca5a5; }
+.dark .text-red-600 { color: #f87171; }
+.dark .bg-purple-100 { background-color: rgba(168, 85, 247, 0.18); }
+.dark .text-purple-700 { color: #d8b4fe; }
+
+/* SIM-448: the new SIM-446 semantic-chip + record-pill tokens are not in the utility-remap set
+   above; give them the same translucent-fill + lifted-text treatment so chips/pills stay legible
+   on dark panels instead of rendering as bright pastels. */
+.dark .bg-brand-light { background-color: rgba(37, 99, 235, 0.18); }
+.dark .text-brand-strong { color: #93c5fd; }
+.dark .bg-success-light { background-color: rgba(16, 185, 129, 0.18); }
+.dark .text-success-text { color: #6ee7b7; }
+.dark .bg-warning-light { background-color: rgba(245, 158, 11, 0.16); }
+.dark .text-warning-text { color: #fcd34d; }
+.dark .bg-error-light { background-color: rgba(239, 68, 68, 0.16); }
+.dark .text-error-text { color: #fca5a5; }
+.dark .bg-agent-light { background-color: rgba(79, 70, 229, 0.20); }
+.dark .text-agent-text { color: #a5b4fc; }
+/* record pills (RecordLink) */
+.dark .bg-pill-org-bg { background-color: rgba(37, 99, 235, 0.18); }
+.dark .text-pill-org-text { color: #93c5fd; }
+.dark .bg-pill-contact-bg { background-color: rgba(16, 185, 129, 0.18); }
+.dark .text-pill-contact-text { color: #6ee7b7; }
+.dark .bg-pill-lead-bg { background-color: rgba(245, 158, 11, 0.16); }
+.dark .text-pill-lead-text { color: #fcd34d; }
+.dark .bg-pill-deal-bg { background-color: rgba(168, 85, 247, 0.18); }
+.dark .text-pill-deal-text { color: #d8b4fe; }
+
+/* shadows read as glows on dark — soften them */
+.dark .shadow-lg, .dark .shadow-2xl, .dark .shadow-sm {
+  --tw-shadow-color: rgba(0, 0, 0, 0.55);
+  --tw-shadow: var(--tw-shadow-colored);
+}
+
+/* ---------------------------------------------------------------------------
+   SIM-618 — dark-mode coverage for every token/class added AFTER the SIM-263
+   remap set (these leaked their LIGHT values onto dark panels: white table rows,
+   light sticky headers, pastel notice tints). Same treatment as the rest of the
+   file: dark surfaces from the panel scale, translucent fills + lifted text.
+--------------------------------------------------------------------------- */
+/* SIM-618 follow-up 2: disabled: variant classes compile to their own classes the
+   plain remaps can't reach — a DISABLED select (e.g. the deal Linked-records Pipeline
+   on a closed deal) kept its LIGHT gray fill under dark. */
+.dark .disabled\:bg-gray-50:disabled { background-color: #161d2c; }
+.dark .disabled\:bg-gray-100:disabled { background-color: #232c41; }
+
+/* table tokens (SIM-446 scale; adopted by the list rows as odd:/even:/hover:) */
+/* SIM-618 follow-up: the sticky list headers paint their th cells via the ARBITRARY
+   variant [&_th]:bg-gray-50, which compiles to its own class the .bg-gray-50 remap
+   can't reach — so every list's header row stayed LIGHT on dark. One rule against
+   that exact class fixes all lists (the header text/carets inherit the th's
+   text-gray-600, which the remap above already lifts). */
+.dark .\[\&_th\]\:bg-gray-50 th { background-color: #161d2c; }
+.dark .bg-table-row, .dark .odd\:bg-table-row:nth-child(odd) { background-color: #1a2233; }
+.dark .bg-table-alt, .dark .even\:bg-table-alt:nth-child(even) { background-color: #151c2b; }
+.dark .bg-table-hover, .dark .hover\:bg-table-hover:hover { background-color: #24334f; }
+.dark .bg-table-selected { background-color: rgba(37, 99, 235, 0.28); }
+/* shell backgrounds (SIM-446 two-tier: content/app-bg = the body scale; panel = card) */
+.dark .bg-content, .dark .bg-app-bg { background-color: #0e1320; }
+.dark .before\:bg-content::before { background-color: #0e1320; }
+.dark .bg-panel { background-color: #1a2233; }
+/* pastel tints not in the original remap (notices, chips, agent/duplicate panels) */
+.dark .bg-blue-50 { background-color: rgba(59, 130, 246, 0.14); }
+.dark .bg-green-50 { background-color: rgba(34, 197, 94, 0.14); }
+.dark .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.14); }
+.dark .bg-indigo-50 { background-color: rgba(99, 102, 241, 0.16); }
+.dark .bg-indigo-100 { background-color: rgba(99, 102, 241, 0.22); }
+.dark .bg-orange-50 { background-color: rgba(249, 115, 22, 0.14); }
+.dark .bg-violet-50 { background-color: rgba(139, 92, 246, 0.16); }
+.dark .bg-amber-200 { background-color: rgba(245, 158, 11, 0.3); }
+.dark .bg-navy-100 { background-color: rgba(173, 192, 230, 0.15); }
+.dark .bg-navy\/5 { background-color: rgba(173, 192, 230, 0.07); }
+.dark .bg-navy\/15 { background-color: rgba(173, 192, 230, 0.16); }
+.dark .bg-navy\/20 { background-color: rgba(173, 192, 230, 0.2); }
+.dark .bg-gray-50\/50 { background-color: rgba(22, 29, 44, 0.5); }
+.dark .bg-gray-50\/60 { background-color: rgba(22, 29, 44, 0.6); }
+.dark .bg-slate-200\/70 { background-color: rgba(46, 56, 82, 0.7); }
+/* text lifts for the hues above (dark-on-dark otherwise) */
+.dark .text-blue-600 { color: #7cb1fb; }
+.dark .text-blue-800 { color: #a8cbfd; }
+.dark .text-green-600 { color: #4ade80; }
+.dark .text-green-800 { color: #a7f3d0; }
+.dark .text-indigo-700 { color: #a5b4fc; }
+.dark .text-orange-800 { color: #fdba74; }
+.dark .text-red-800 { color: #fecaca; }
+.dark .text-amber-900, .dark .text-amber-950 { color: #fde68a; }
+/* modals are LIGHT panels in light mode (SIM-459); on dark the panel remaps via
+   .bg-white above, so the forced-white fields flip to the dark field scale too */
+.dark :where(.modal-surface) input:where(:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]):not([type="range"])),
+.dark :where(.modal-surface) textarea,
+.dark :where(.modal-surface) select {
+  background-color: #232c41;
+  color: #e6eaf2;
+  border-color: #3a4663;
+}
+.dark :where(.modal-surface) input:where(:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]):not([type="range"]))::placeholder,
+.dark :where(.modal-surface) textarea::placeholder {
+  color: #707b91;
+}
+
+/* SIM-618 — scroll without chrome (the sidebar rails): keep overflow scrolling,
+   hide the bar in both engines. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* ---------------------------------------------------------------------------
+   SIM-459 — modals are now LIGHT (white panel, dark text). The shared Modal and
+   all CRM modals were converted from the SIM-226 dark theme; the dark-input
+   dressing (bg-sidebar-hover / text-white / text-sidebar-text) was replaced with
+   the standard light form styling, and the dark={true} widgets render light.
+
+   This baseline keeps EVERY modal field a readable white field + gray-900 text +
+   gray-300 border, even for a field that sets no explicit colour — so bare
+   `border border-gray-300` inputs (the settings modals) and any future modal field
+   stay consistent. Specificity is tuned to (0,0,1): `:where(.modal-surface)` and
+   the `:where(:not([type=…]))` exclusion chain contribute ZERO, so it beats
+   preflight's `button,input{color:inherit}` (later in source order) but loses to
+   any explicit utility class. The SIM-451 label-lift rules (which lightened greys
+   for the OLD dark panel) are removed — on a white panel they would wash labels
+   out. Keep UNLAYERED (an `@layer base {}` wrapper here breaks Next's CSS minifier). */
+:where(.modal-surface) input:where(:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]):not([type="range"])),
+:where(.modal-surface) textarea,
+:where(.modal-surface) select {
+  background-color: #ffffff; /* white field */
+  color: #111827;            /* gray-900 — standard body text */
+  border-color: #d1d5db;     /* gray-300 — visible border */
+}
+:where(.modal-surface) input:where(:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]):not([type="range"]))::placeholder,
+:where(.modal-surface) textarea::placeholder {
+  color: #9ca3af; /* gray-400 */
+}

@@ -1,0 +1,709 @@
+{
+  "fetchedAt": "2026-07-15T08:39:01.516Z",
+  "rates": [
+    {
+      "rate": 4150,
+      "effectiveDate": "2026-07-15"
+    },
+    {
+      "rate": 4128,
+      "effectiveDate": "2026-06-30"
+    },
+    {
+      "rate": 4211,
+      "effectiveDate": "2026-06-15"
+    },
+    {
+      "rate": 4213,
+      "effectiveDate": "2026-06-01"
+    },
+    {
+      "rate": 4212,
+      "effectiveDate": "2026-05-15"
+    },
+    {
+      "rate": 4210,
+      "effectiveDate": "2026-05-01"
+    },
+    {
+      "rate": 4125,
+      "effectiveDate": "2026-04-15"
+    },
+    {
+      "rate": 3990,
+      "effectiveDate": "2026-04-01"
+    },
+    {
+      "rate": 3905,
+      "effectiveDate": "2026-03-15"
+    },
+    {
+      "rate": 3915,
+      "effectiveDate": "2026-03-01"
+    },
+    {
+      "rate": 3915,
+      "effectiveDate": "2026-02-15"
+    },
+    {
+      "rate": 3935,
+      "effectiveDate": "2026-02-01"
+    },
+    {
+      "rate": 3820,
+      "effectiveDate": "2026-01-15"
+    },
+    {
+      "rate": 3820,
+      "effectiveDate": "2025-12-31"
+    },
+    {
+      "rate": 3950,
+      "effectiveDate": "2025-12-15"
+    },
+    {
+      "rate": 3950,
+      "effectiveDate": "2025-12-01"
+    },
+    {
+      "rate": 3950,
+      "effectiveDate": "2025-11-14"
+    },
+    {
+      "rate": 3950,
+      "effectiveDate": "2025-11-01"
+    },
+    {
+      "rate": 4000,
+      "effectiveDate": "2025-10-15"
+    },
+    {
+      "rate": 4100,
+      "effectiveDate": "2025-10-01"
+    },
+    {
+      "rate": 4200,
+      "effectiveDate": "2025-09-15"
+    },
+    {
+      "rate": 4200,
+      "effectiveDate": "2025-09-01"
+    },
+    {
+      "rate": 4200,
+      "effectiveDate": "2025-08-15"
+    },
+    {
+      "rate": 4200,
+      "effectiveDate": "2025-08-01"
+    },
+    {
+      "rate": 4200,
+      "effectiveDate": "2025-07-15"
+    },
+    {
+      "rate": 4200,
+      "effectiveDate": "2025-06-30"
+    },
+    {
+      "rate": 4195,
+      "effectiveDate": "2025-06-13"
+    },
+    {
+      "rate": 4195,
+      "effectiveDate": "2025-06-01"
+    },
+    {
+      "rate": 4185,
+      "effectiveDate": "2025-05-15"
+    },
+    {
+      "rate": 4180,
+      "effectiveDate": "2025-05-01"
+    },
+    {
+      "rate": 4185,
+      "effectiveDate": "2025-04-15"
+    },
+    {
+      "rate": 4185,
+      "effectiveDate": "2025-04-01"
+    },
+    {
+      "rate": 4185,
+      "effectiveDate": "2025-03-14"
+    },
+    {
+      "rate": 4185,
+      "effectiveDate": "2025-03-01"
+    },
+    {
+      "rate": 4185,
+      "effectiveDate": "2025-02-14"
+    },
+    {
+      "rate": 4185,
+      "effectiveDate": "2025-02-01"
+    },
+    {
+      "rate": 4185,
+      "effectiveDate": "2025-01-15"
+    },
+    {
+      "rate": 4185,
+      "effectiveDate": "2024-12-31"
+    },
+    {
+      "rate": 4180,
+      "effectiveDate": "2024-12-13"
+    },
+    {
+      "rate": 4100,
+      "effectiveDate": "2024-12-01"
+    },
+    {
+      "rate": 4100,
+      "effectiveDate": "2024-11-15"
+    },
+    {
+      "rate": 4180,
+      "effectiveDate": "2024-11-01"
+    },
+    {
+      "rate": 4300,
+      "effectiveDate": "2024-10-15"
+    },
+    {
+      "rate": 4500,
+      "effectiveDate": "2024-10-01"
+    },
+    {
+      "rate": 4160,
+      "effectiveDate": "2024-09-13"
+    },
+    {
+      "rate": 4150,
+      "effectiveDate": "2024-09-01"
+    },
+    {
+      "rate": 3508.5,
+      "effectiveDate": "2024-08-15"
+    },
+    {
+      "rate": 3501,
+      "effectiveDate": "2024-08-01"
+    },
+    {
+      "rate": 3556,
+      "effectiveDate": "2024-07-15"
+    },
+    {
+      "rate": 3542.5,
+      "effectiveDate": "2024-06-30"
+    },
+    {
+      "rate": 3537.5,
+      "effectiveDate": "2024-06-14"
+    },
+    {
+      "rate": 3510,
+      "effectiveDate": "2024-06-01"
+    },
+    {
+      "rate": 3509,
+      "effectiveDate": "2024-05-15"
+    },
+    {
+      "rate": 3477.5,
+      "effectiveDate": "2024-05-01"
+    },
+    {
+      "rate": 3472.5,
+      "effectiveDate": "2024-04-15"
+    },
+    {
+      "rate": 3470,
+      "effectiveDate": "2024-04-01"
+    },
+    {
+      "rate": 3455,
+      "effectiveDate": "2024-03-15"
+    },
+    {
+      "rate": 3405,
+      "effectiveDate": "2024-03-01"
+    },
+    {
+      "rate": 3390,
+      "effectiveDate": "2024-02-15"
+    },
+    {
+      "rate": 3420,
+      "effectiveDate": "2024-02-01"
+    },
+    {
+      "rate": 3420,
+      "effectiveDate": "2024-01-15"
+    },
+    {
+      "rate": 3420,
+      "effectiveDate": "2023-12-31"
+    },
+    {
+      "rate": 3430,
+      "effectiveDate": "2023-12-15"
+    },
+    {
+      "rate": 2940,
+      "effectiveDate": "2023-12-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-11-15"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-11-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-10-13"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-10-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-09-15"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-09-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-08-15"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-08-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-07-14"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-06-30"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-06-15"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-06-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-05-15"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-05-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-04-14"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-04-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-03-15"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-03-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-02-15"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-02-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2023-01-13"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2022-12-31"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2022-12-15"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2022-12-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2022-11-15"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2022-11-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2022-10-14"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2022-10-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2022-09-15"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2022-09-01"
+    },
+    {
+      "rate": 2100,
+      "effectiveDate": "2022-08-15"
+    },
+    {
+      "rate": 1850,
+      "effectiveDate": "2022-08-01"
+    },
+    {
+      "rate": 1850,
+      "effectiveDate": "2022-07-15"
+    },
+    {
+      "rate": 1850,
+      "effectiveDate": "2022-06-30"
+    },
+    {
+      "rate": 1850,
+      "effectiveDate": "2022-06-15"
+    },
+    {
+      "rate": 1850,
+      "effectiveDate": "2022-06-01"
+    },
+    {
+      "rate": 1850,
+      "effectiveDate": "2022-05-13"
+    },
+    {
+      "rate": 1850,
+      "effectiveDate": "2022-05-01"
+    },
+    {
+      "rate": 1850,
+      "effectiveDate": "2022-04-14"
+    },
+    {
+      "rate": 1776,
+      "effectiveDate": "2022-04-01"
+    },
+    {
+      "rate": 1776,
+      "effectiveDate": "2022-03-15"
+    },
+    {
+      "rate": 1776,
+      "effectiveDate": "2022-03-01"
+    },
+    {
+      "rate": 1776,
+      "effectiveDate": "2022-02-15"
+    },
+    {
+      "rate": 1776,
+      "effectiveDate": "2022-02-01"
+    },
+    {
+      "rate": 1776,
+      "effectiveDate": "2022-01-14"
+    },
+    {
+      "rate": 1773,
+      "effectiveDate": "2021-12-31"
+    },
+    {
+      "rate": 1780,
+      "effectiveDate": "2021-12-01"
+    },
+    {
+      "rate": 1800,
+      "effectiveDate": "2021-11-01"
+    },
+    {
+      "rate": 1815,
+      "effectiveDate": "2021-10-01"
+    },
+    {
+      "rate": 1652,
+      "effectiveDate": "2021-09-01"
+    },
+    {
+      "rate": 1636,
+      "effectiveDate": "2021-08-01"
+    },
+    {
+      "rate": 1582,
+      "effectiveDate": "2021-06-30"
+    },
+    {
+      "rate": 1651,
+      "effectiveDate": "2021-06-01"
+    },
+    {
+      "rate": 1548,
+      "effectiveDate": "2021-05-01"
+    },
+    {
+      "rate": 1434,
+      "effectiveDate": "2021-04-01"
+    },
+    {
+      "rate": 1413,
+      "effectiveDate": "2021-03-01"
+    },
+    {
+      "rate": 1333,
+      "effectiveDate": "2021-02-01"
+    },
+    {
+      "rate": 1353,
+      "effectiveDate": "2020-12-31"
+    },
+    {
+      "rate": 1300,
+      "effectiveDate": "2020-12-01"
+    },
+    {
+      "rate": 1295,
+      "effectiveDate": "2020-11-01"
+    },
+    {
+      "rate": 1323,
+      "effectiveDate": "2020-10-01"
+    },
+    {
+      "rate": 1365,
+      "effectiveDate": "2020-09-01"
+    },
+    {
+      "rate": 1376,
+      "effectiveDate": "2020-08-01"
+    },
+    {
+      "rate": 1400,
+      "effectiveDate": "2020-06-30"
+    },
+    {
+      "rate": 1406,
+      "effectiveDate": "2020-06-01"
+    },
+    {
+      "rate": 1427,
+      "effectiveDate": "2020-05-01"
+    },
+    {
+      "rate": 1404,
+      "effectiveDate": "2020-04-01"
+    },
+    {
+      "rate": 1450,
+      "effectiveDate": "2020-03-01"
+    },
+    {
+      "rate": 1471,
+      "effectiveDate": "2020-02-01"
+    },
+    {
+      "rate": 1505,
+      "effectiveDate": "2019-12-31"
+    },
+    {
+      "rate": 1515,
+      "effectiveDate": "2019-12-01"
+    },
+    {
+      "rate": 1533,
+      "effectiveDate": "2019-11-01"
+    },
+    {
+      "rate": 1533,
+      "effectiveDate": "2019-10-01"
+    },
+    {
+      "rate": 1515,
+      "effectiveDate": "2019-09-01"
+    },
+    {
+      "rate": 1510,
+      "effectiveDate": "2019-08-01"
+    },
+    {
+      "rate": 1527,
+      "effectiveDate": "2019-06-30"
+    },
+    {
+      "rate": 1536,
+      "effectiveDate": "2019-06-01"
+    },
+    {
+      "rate": 1515,
+      "effectiveDate": "2019-05-01"
+    },
+    {
+      "rate": 1524,
+      "effectiveDate": "2019-04-01"
+    },
+    {
+      "rate": 1530,
+      "effectiveDate": "2019-03-01"
+    },
+    {
+      "rate": 1532,
+      "effectiveDate": "2019-02-01"
+    },
+    {
+      "rate": 1570,
+      "effectiveDate": "2018-12-31"
+    },
+    {
+      "rate": 1570,
+      "effectiveDate": "2018-12-01"
+    },
+    {
+      "rate": 1540,
+      "effectiveDate": "2018-11-01"
+    },
+    {
+      "rate": 1560,
+      "effectiveDate": "2018-10-01"
+    },
+    {
+      "rate": 1500,
+      "effectiveDate": "2018-09-01"
+    },
+    {
+      "rate": 1415,
+      "effectiveDate": "2018-08-01"
+    },
+    {
+      "rate": 1360,
+      "effectiveDate": "2018-06-30"
+    },
+    {
+      "rate": 1345,
+      "effectiveDate": "2018-06-01"
+    },
+    {
+      "rate": 1330,
+      "effectiveDate": "2018-05-01"
+    },
+    {
+      "rate": 1335,
+      "effectiveDate": "2018-04-01"
+    },
+    {
+      "rate": 1330,
+      "effectiveDate": "2018-03-01"
+    },
+    {
+      "rate": 1320,
+      "effectiveDate": "2018-02-01"
+    },
+    {
+      "rate": 1360,
+      "effectiveDate": "2017-12-31"
+    },
+    {
+      "rate": 1365,
+      "effectiveDate": "2017-12-01"
+    },
+    {
+      "rate": 1360,
+      "effectiveDate": "2017-11-01"
+    },
+    {
+      "rate": 1355,
+      "effectiveDate": "2017-10-01"
+    },
+    {
+      "rate": 1360,
+      "effectiveDate": "2017-09-01"
+    },
+    {
+      "rate": 1365,
+      "effectiveDate": "2017-08-01"
+    },
+    {
+      "rate": 1360,
+      "effectiveDate": "2017-06-30"
+    },
+    {
+      "rate": 1360,
+      "effectiveDate": "2017-06-01"
+    },
+    {
+      "rate": 1340,
+      "effectiveDate": "2017-05-01"
+    },
+    {
+      "rate": 1355,
+      "effectiveDate": "2017-04-01"
+    },
+    {
+      "rate": 1340,
+      "effectiveDate": "2017-03-01"
+    },
+    {
+      "rate": 1340,
+      "effectiveDate": "2017-02-01"
+    },
+    {
+      "rate": 1350,
+      "effectiveDate": "2016-12-31"
+    },
+    {
+      "rate": 1300,
+      "effectiveDate": "2016-12-01"
+    },
+    {
+      "rate": 1275,
+      "effectiveDate": "2016-11-01"
+    },
+    {
+      "rate": 1230,
+      "effectiveDate": "2016-10-15"
+    },
+    {
+      "rate": 1230,
+      "effectiveDate": "2016-10-01"
+    },
+    {
+      "rate": 1190,
+      "effectiveDate": "2016-09-01"
+    },
+    {
+      "rate": 1170,
+      "effectiveDate": "2016-08-01"
+    }
+  ]
+}
