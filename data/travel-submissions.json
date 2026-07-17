@@ -348,5 +348,25 @@
     "dutyStation": "Yangon",
     "grandTotalPerDiemUsd": 101.80528016724,
     "grandTotalAmountMmk": 822491.912694046
+  },
+  {
+    "id": "TRV-MROCC9YN",
+    "createdAt": "2026-07-17T02:50:49.583Z",
+    "month": "2026-07",
+    "team": "EPI",
+    "name": "Dr. Phyu Phyu Thin",
+    "dutyStation": "Shan-Taunggyi",
+    "grandTotalPerDiemUsd": 52.67247102,
+    "grandTotalAmountMmk": 818590.754733
+  },
+  {
+    "id": "TRV-MRODA1JF",
+    "createdAt": "2026-07-17T03:17:04.971Z",
+    "month": "2026-07",
+    "team": "EPI",
+    "name": "Eaint",
+    "dutyStation": "Yagon",
+    "grandTotalPerDiemUsd": 30.572343269999998,
+    "grandTotalAmountMmk": 276875.22457049997
   }
 ]
