@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { getSession, getAal, getPortalUserStatus, getOrg, signOut as dataSignOut } from "@/lib/portal/data";
+import { FEATURES } from "@/config/features";
 import { PortalOrgContext, type PortalOrg } from "./portal-org-context";
 
 // SIM-324 (Portal Workstream C) — the client shell: session/aal guard, client-scoped nav and
@@ -12,9 +13,15 @@ import { PortalOrgContext, type PortalOrg } from "./portal-org-context";
 // publishable key + SIM-322 RLS — there is no service-role code path here and no app-side
 // tenant filter (the DB scopes rows to the client's org).
 
-const NAV = [
+// Sidebar org badge (name + client code) is hidden for now -- flip to true to restore it.
+// The org context/provider below stays wired up regardless, so this only affects rendering.
+const SHOW_ORG_BADGE = false;
+
+type NavItem = { href: string; label: string; enabled?: boolean };
+
+const NAV: NavItem[] = [
   { href: "/portal/travel-request", label: "Travel Request" },
-  { href: "/portal/travel-claim", label: "Travel Claim" },
+  { href: "/portal/travel-claim", label: "Travel Claim", enabled: FEATURES.travelClaim },
 ];
 
 export default function PortalShellLayout({ children }: { children: React.ReactNode }) {
@@ -71,13 +78,15 @@ export default function PortalShellLayout({ children }: { children: React.ReactN
             <p className="text-lg font-bold tracking-tight text-white">CorpSec</p>
             <p className="text-xs text-text-secondary">Client Portal</p>
           </div>
-          <div className="px-4 pb-4" data-testid="portal-org-badge">
-            <p className="text-[11px] uppercase tracking-wider text-text-secondary">Your organisation</p>
-            <p className="truncate text-sm font-medium text-white">{org?.name ?? "—"}</p>
-            <p className="text-[11px] text-text-secondary">{org?.display_id ?? ""}</p>
-          </div>
+          {SHOW_ORG_BADGE && (
+            <div className="px-4 pb-4" data-testid="portal-org-badge">
+              <p className="text-[11px] uppercase tracking-wider text-text-secondary">Your organisation</p>
+              <p className="truncate text-sm font-medium text-white">{org?.name ?? "—"}</p>
+              <p className="text-[11px] text-text-secondary">{org?.display_id ?? ""}</p>
+            </div>
+          )}
           <nav className="flex-1 space-y-0.5 overflow-y-auto px-2">
-            {NAV.map((n) => {
+            {NAV.filter((n) => n.enabled !== false).map((n) => {
               const active = pathname.startsWith(n.href);
               return (
                 <Link key={n.href} href={n.href}

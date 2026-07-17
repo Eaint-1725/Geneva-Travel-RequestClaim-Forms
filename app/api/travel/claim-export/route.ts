@@ -34,11 +34,11 @@ const AUTO_COLS = new Set([11, 15, 16]);
 const AMOUNT_FMT = '_(* #,##0_);_(* \\(#,##0\\);_(* "-"??_);_(@_)';
 const DATE_FMT = "dd-mmm-yy";
 
-const HAIR_BORDER: Partial<ExcelJS.Borders> = {
-  top: { style: "hair" },
-  left: { style: "hair" },
-  bottom: { style: "hair" },
-  right: { style: "hair" },
+const THIN_BORDER: Partial<ExcelJS.Borders> = {
+  top: { style: "thin" },
+  left: { style: "thin" },
+  bottom: { style: "thin" },
+  right: { style: "thin" },
 };
 
 function fillCell(cell: ExcelJS.Cell, argb: string): void {
@@ -114,6 +114,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     c.value = h;
     c.font = { bold: true };
     c.border = { bottom: { style: "thin" } };
+    c.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
   });
 
   function tintRow(r: number): void {
@@ -122,7 +123,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (MANUAL_COLS.has(c)) fillCell(cell, MANUAL_FILL);
       else if (DROPDOWN_COLS.has(c)) fillCell(cell, DROPDOWN_FILL);
       else if (AUTO_COLS.has(c)) fillCell(cell, AUTO_FILL);
-      cell.border = HAIR_BORDER;
+      cell.border = THIN_BORDER;
     }
   }
 
@@ -142,7 +143,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ws.getCell(r, 7).value = row.toTownship || null;
     ws.getCell(r, 8).value = row.mode;
     ws.getCell(r, 9).value = row.noOfDays ?? 0;
-    ws.getCell(r, 10).value = row.deduction;
+    const deductionCell = ws.getCell(r, 10);
+    deductionCell.value = row.deduction;
+    deductionCell.alignment = { horizontal: "left", vertical: "middle", wrapText: true };
     const perDiemCell = ws.getCell(r, 11);
     perDiemCell.value = Math.round(perDiemUsd * 100) / 100;
     perDiemCell.numFmt = "#,##0.00";
@@ -215,7 +218,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     subAmountCell.numFmt = AMOUNT_FMT;
     for (let c = 1; c <= COLS; c++) {
       fillCell(ws.getCell(row, c), YELLOW_FILL);
-      ws.getCell(row, c).border = HAIR_BORDER;
+      ws.getCell(row, c).border = THIN_BORDER;
     }
     row += 1;
 
@@ -246,7 +249,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const cell = ws.getCell(grandRow, c);
     fillCell(cell, ORANGE_FILL);
     cell.font = { bold: true };
-    cell.border = HAIR_BORDER;
+    cell.border = THIN_BORDER;
   }
 
   // Notes block (MAL team only) -- one merged, wrapped row per line, centered under

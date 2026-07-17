@@ -17,20 +17,14 @@ const AUTO_COLS = new Set([11, 16]);
 const AMOUNT_FMT = '_(* #,##0_);_(* \\(#,##0\\);_(* "-"??_);_(@_)';
 const DATE_FMT = "dd-mmm-yy";
 
-const HAIR_BORDER: Partial<ExcelJS.Borders> = {
-  top: { style: "hair" },
-  left: { style: "hair" },
-  bottom: { style: "hair" },
-  right: { style: "hair" },
-};
-
-// Same weight the header row's bottom edge already used ("thin"), just extended to all 4 sides.
-const HEADER_BORDER: Partial<ExcelJS.Borders> = {
+const THIN_BORDER: Partial<ExcelJS.Borders> = {
   top: { style: "thin" },
   left: { style: "thin" },
   bottom: { style: "thin" },
   right: { style: "thin" },
 };
+
+const HEADER_BORDER = THIN_BORDER;
 
 const ALIGN_CENTER_MIDDLE: Partial<ExcelJS.Alignment> = { vertical: "middle", horizontal: "center" };
 const ALIGN_LEFT_MIDDLE: Partial<ExcelJS.Alignment> = { vertical: "middle", horizontal: "left" };
@@ -106,6 +100,7 @@ export async function buildTravelRequestWorkbook(form: TravelRequestForm): Promi
     c.value = h;
     c.font = { bold: true };
     c.border = HEADER_BORDER;
+    c.alignment = { ...ALIGN_CENTER_MIDDLE, wrapText: true };
   });
 
   function tintRow(r: number): void {
@@ -114,7 +109,7 @@ export async function buildTravelRequestWorkbook(form: TravelRequestForm): Promi
       if (MANUAL_COLS.has(c)) fillCell(cell, MANUAL_FILL);
       else if (DROPDOWN_COLS.has(c)) fillCell(cell, DROPDOWN_FILL);
       else if (AUTO_COLS.has(c)) fillCell(cell, AUTO_FILL);
-      cell.border = HAIR_BORDER;
+      cell.border = THIN_BORDER;
     }
   }
 
@@ -152,7 +147,7 @@ export async function buildTravelRequestWorkbook(form: TravelRequestForm): Promi
     daysCell.alignment = ALIGN_CENTER_MIDDLE;
     const deductionCell = ws.getCell(r, 10);
     deductionCell.value = row.deduction;
-    deductionCell.alignment = ALIGN_LEFT_MIDDLE;
+    deductionCell.alignment = { ...ALIGN_LEFT_MIDDLE, wrapText: true };
     const perDiemCell = ws.getCell(r, 11);
     perDiemCell.value = Math.round(perDiemUsd * 100) / 100;
     perDiemCell.numFmt = PER_DIEM_DISPLAY_FMT;
@@ -243,7 +238,7 @@ export async function buildTravelRequestWorkbook(form: TravelRequestForm): Promi
     subAmountCell.alignment = ALIGN_RIGHT_MIDDLE;
     for (let c = 1; c <= COLS; c++) {
       fillCell(ws.getCell(row, c), YELLOW_FILL);
-      ws.getCell(row, c).border = HAIR_BORDER;
+      ws.getCell(row, c).border = THIN_BORDER;
     }
     row += 1;
 
@@ -284,7 +279,7 @@ export async function buildTravelRequestWorkbook(form: TravelRequestForm): Promi
     const cell = ws.getCell(grandRow, c);
     fillCell(cell, ORANGE_FILL);
     cell.font = { bold: true };
-    cell.border = HAIR_BORDER;
+    cell.border = THIN_BORDER;
   }
 
   // Notes block (MAL team only) -- one merged, wrapped row per line, centered under
