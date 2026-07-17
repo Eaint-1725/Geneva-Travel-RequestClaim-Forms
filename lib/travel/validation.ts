@@ -42,6 +42,11 @@ export function validateRow(row: Row, tripId: string, month: string, errors: Rec
   if (row.travelHotelMmk !== null && row.travelHotelMmk < 0) errors[key("travelHotelMmk")] = "Must be 0 or more";
   if (row.airTicketMmk !== null && row.airTicketMmk < 0) errors[key("airTicketMmk")] = "Must be 0 or more";
   if (row.terminalAllowanceUsd !== null && row.terminalAllowanceUsd < 0) errors[key("terminalAllowanceUsd")] = "Must be 0 or more";
+
+  if (row.mode === "Air") {
+    if (row.airTicketMmk === null) errors[key("airTicketMmk")] = "Air Ticket Cost is required for Air travel";
+    if (row.terminalAllowanceUsd === null) errors[key("terminalAllowanceUsd")] = "Terminal Allowance is required for Air travel";
+  }
 }
 
 export function validateForm(form: TravelRequestForm): ValidationResult {
