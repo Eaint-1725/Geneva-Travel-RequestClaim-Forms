@@ -98,6 +98,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   monthCell.value = form.header.month ? parseDate(`${form.header.month}-01`) : null;
   monthCell.numFmt = "mmm-yy";
   ws.getCell(2, 17).value = "Submission date:";
+  ws.mergeCells(2, 18, 2, 19); // R:S -- the full "dddd, mmmm dd, yyyy" value overflows a single column
   const subDateCell = ws.getCell(2, 18);
   subDateCell.value = parseDate(form.header.submissionDate);
   subDateCell.numFmt = "dddd, mmmm dd, yyyy";

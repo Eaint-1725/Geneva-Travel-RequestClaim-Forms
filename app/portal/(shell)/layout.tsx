@@ -17,6 +17,10 @@ import { PortalOrgContext, type PortalOrg } from "./portal-org-context";
 // The org context/provider below stays wired up regardless, so this only affects rendering.
 const SHOW_ORG_BADGE = false;
 
+// Sidebar Sign out button is hidden for now (this portal predates real auth) -- flip to true
+// to restore it. The signOut() wiring below stays intact regardless, so this only affects rendering.
+const SHOW_SIGN_OUT = false;
+
 type NavItem = { href: string; label: string; enabled?: boolean };
 
 const NAV: NavItem[] = [
@@ -97,11 +101,13 @@ export default function PortalShellLayout({ children }: { children: React.ReactN
               );
             })}
           </nav>
-          <div className="p-3">
-            <button type="button" onClick={() => void signOut()} className="w-full rounded border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10" data-testid="portal-signout">
-              Sign out
-            </button>
-          </div>
+          {SHOW_SIGN_OUT && (
+            <div className="p-3">
+              <button type="button" onClick={() => void signOut()} className="w-full rounded border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10" data-testid="portal-signout">
+                Sign out
+              </button>
+            </div>
+          )}
         </aside>
         <main className="flex-1 overflow-y-auto bg-gray-100 p-6">{children}</main>
       </div>
