@@ -1,6 +1,8 @@
 // Sends mail through Microsoft Graph (app-only, client-credentials flow) as the HR mailbox.
 // No SMTP and no third-party email API -- the app registration + client secret carry the auth.
 
+const FETCH_TIMEOUT_MS = 10_000;
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
@@ -27,13 +29,23 @@ async function getGraphAccessToken(): Promise<string> {
       scope: "https://graph.microsoft.com/.default",
       grant_type: "client_credentials",
     }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
+
+  console.log(`[graph:token] status=${res.status} ok=${res.ok}`);
 
   if (!res.ok) {
     throw new Error(`Graph token request failed (${res.status}): ${await res.text()}`);
   }
 
-  const data = (await res.json()) as GraphTokenResponse;
+  // Unlike sendMail, the token endpoint always returns a JSON body on 200 -- but guard the
+  // parse anyway so a malformed response reads as a clear "token" failure, not a mystery throw.
+  let data: GraphTokenResponse;
+  try {
+    data = (await res.json()) as GraphTokenResponse;
+  } catch (e) {
+    throw new Error(`Graph token response wasn't valid JSON: ${e instanceof Error ? e.message : String(e)}`);
+  }
   return data.access_token;
 }
 
@@ -78,7 +90,13 @@ export async function sendGraphEmail(params: SendGraphEmailParams): Promise<void
       },
       saveToSentItems: true,
     }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
+
+  // sendMail returns 202 Accepted with an EMPTY body on success -- status is the only signal.
+  // Never call res.json()/res.text() here on the success path: reading an empty body is safe,
+  // but there is nothing useful in it, and doing so on the error path only is intentional.
+  console.log(`[graph:sendMail] status=${res.status} ok=${res.ok}`);
 
   if (!res.ok) {
     throw new Error(`Graph sendMail failed (${res.status}): ${await res.text()}`);
