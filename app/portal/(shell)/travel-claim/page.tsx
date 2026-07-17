@@ -167,10 +167,10 @@ export default function TravelClaimPage() {
           <Field label="Name of traveller" error={showErrors ? errors["header.name"] : undefined} width="w-48">
             <input type="text" className={`${inputCls} w-full`} value={header.name} onChange={(e) => updateHeader("name", e.target.value)} data-testid="travel-claim-name" />
           </Field>
-          <Field label="Position" error={showErrors ? errors["header.position"] : undefined} width="w-32">
+          <Field label="Position" error={showErrors ? errors["header.position"] : undefined} width="w-56">
             <input type="text" className={`${inputCls} w-full`} value={header.position} onChange={(e) => updateHeader("position", e.target.value)} data-testid="travel-claim-position" />
           </Field>
-          <Field label="Duty Station" error={showErrors ? errors["header.dutyStation"] : undefined} width="w-36">
+          <Field label="Duty Station" error={showErrors ? errors["header.dutyStation"] : undefined} width="w-56">
             <input type="text" className={`${inputCls} w-full`} value={header.dutyStation} onChange={(e) => updateHeader("dutyStation", e.target.value)} data-testid="travel-claim-duty-station" />
           </Field>
         </div>

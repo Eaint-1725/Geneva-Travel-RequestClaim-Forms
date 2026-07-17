@@ -92,10 +92,10 @@ export default function ClaimRowFields({
         <Field label="Travel cost + Hotel Bill (MMK, optional)" error={errors.travelHotelMmk} width="w-44">
           <input type="number" min="0" className={`${inputCls} w-full`} value={row.travelHotelMmk ?? ""} onChange={(e) => set("travelHotelMmk", numOrNull(e.target.value))} data-testid={tid("travel-hotel")} />
         </Field>
-        <Field label="Air Ticket Cost (MMK, optional)" error={errors.airTicketMmk} width="w-40">
+        <Field label={`Air Ticket Cost (MMK, ${row.mode === "Air" ? "required" : "optional"})`} error={errors.airTicketMmk} width="w-40">
           <input type="number" min="0" className={`${inputCls} w-full`} value={row.airTicketMmk ?? ""} onChange={(e) => set("airTicketMmk", numOrNull(e.target.value))} data-testid={tid("air-ticket")} />
         </Field>
-        <Field label="Terminal Allowance (USD, optional)" error={errors.terminalAllowanceUsd} width="w-44">
+        <Field label={`Terminal Allowance (USD, ${row.mode === "Air" ? "required" : "optional"})`} error={errors.terminalAllowanceUsd} width="w-44">
           <input type="number" min="0" className={`${inputCls} w-full`} value={row.terminalAllowanceUsd ?? ""} onChange={(e) => set("terminalAllowanceUsd", numOrNull(e.target.value))} data-testid={tid("terminal")} />
         </Field>
         <div className="flex w-44 flex-col">

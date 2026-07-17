@@ -41,6 +41,12 @@ const THIN_BORDER: Partial<ExcelJS.Borders> = {
   right: { style: "thin" },
 };
 
+const ALIGN_CENTER_MIDDLE: Partial<ExcelJS.Alignment> = { vertical: "middle", horizontal: "center" };
+const ALIGN_LEFT_MIDDLE: Partial<ExcelJS.Alignment> = { vertical: "middle", horizontal: "left" };
+const ALIGN_RIGHT_MIDDLE: Partial<ExcelJS.Alignment> = { vertical: "middle", horizontal: "right" };
+
+const PER_DIEM_DISPLAY_FMT = "0"; // display whole numbers only; underlying stored value keeps full precision
+
 function fillCell(cell: ExcelJS.Cell, argb: string): void {
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
 }
@@ -114,8 +120,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const c = ws.getCell(3, i + 1);
     c.value = h;
     c.font = { bold: true };
-    c.border = { bottom: { style: "thin" } };
-    c.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    c.border = THIN_BORDER;
+    c.alignment = { ...ALIGN_CENTER_MIDDLE, wrapText: true };
   });
 
   function tintRow(r: number): void {
@@ -131,43 +137,64 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const travellerCapacity = composeTravellerCapacity(form.header.name, form.header.position, form.header.dutyStation);
 
   function writeRow(r: number, row: Row, showName: boolean, rowRate: number, perDiemUsd: number, amountMmk: number): void {
-    ws.getCell(r, 1).value = form.header.team;
+    const teamCell = ws.getCell(r, 1);
+    teamCell.value = form.header.team;
+    teamCell.alignment = ALIGN_CENTER_MIDDLE;
     const nameCell = ws.getCell(r, 2);
     nameCell.value = showName ? travellerCapacity : null;
-    nameCell.alignment = { ...nameCell.alignment, wrapText: true, vertical: "middle" };
+    nameCell.alignment = { ...ALIGN_CENTER_MIDDLE, wrapText: true };
     const dateCell = ws.getCell(r, 3);
     dateCell.value = parseDate(row.date);
     dateCell.numFmt = DATE_FMT;
-    ws.getCell(r, 4).value = row.fromArea;
-    ws.getCell(r, 5).value = row.fromTownship || null;
-    ws.getCell(r, 6).value = row.toArea;
-    ws.getCell(r, 7).value = row.toTownship || null;
-    ws.getCell(r, 8).value = row.mode;
-    ws.getCell(r, 9).value = row.noOfDays ?? 0;
+    dateCell.alignment = ALIGN_CENTER_MIDDLE;
+    const fromAreaCell = ws.getCell(r, 4);
+    fromAreaCell.value = row.fromArea;
+    fromAreaCell.alignment = ALIGN_LEFT_MIDDLE;
+    const fromTownshipCell = ws.getCell(r, 5);
+    fromTownshipCell.value = row.fromTownship || null;
+    fromTownshipCell.alignment = ALIGN_LEFT_MIDDLE;
+    const toAreaCell = ws.getCell(r, 6);
+    toAreaCell.value = row.toArea;
+    toAreaCell.alignment = ALIGN_LEFT_MIDDLE;
+    const toTownshipCell = ws.getCell(r, 7);
+    toTownshipCell.value = row.toTownship || null;
+    toTownshipCell.alignment = ALIGN_LEFT_MIDDLE;
+    const modeCell = ws.getCell(r, 8);
+    modeCell.value = row.mode;
+    modeCell.alignment = ALIGN_LEFT_MIDDLE;
+    const daysCell = ws.getCell(r, 9);
+    daysCell.value = row.noOfDays ?? 0;
+    daysCell.alignment = ALIGN_CENTER_MIDDLE;
     const deductionCell = ws.getCell(r, 10);
     deductionCell.value = row.deduction;
-    deductionCell.alignment = { horizontal: "left", vertical: "middle", wrapText: true };
+    deductionCell.alignment = { ...ALIGN_LEFT_MIDDLE, wrapText: true };
     const perDiemCell = ws.getCell(r, 11);
     perDiemCell.value = Math.round(perDiemUsd * 100) / 100;
-    perDiemCell.numFmt = "#,##0.00";
+    perDiemCell.numFmt = PER_DIEM_DISPLAY_FMT;
+    perDiemCell.alignment = ALIGN_RIGHT_MIDDLE;
     const travelCell = ws.getCell(r, 12);
     travelCell.value = row.travelHotelMmk ?? 0;
     travelCell.numFmt = AMOUNT_FMT;
+    travelCell.alignment = ALIGN_RIGHT_MIDDLE;
     const airCell = ws.getCell(r, 13);
     airCell.value = row.airTicketMmk ?? 0;
     airCell.numFmt = AMOUNT_FMT;
+    airCell.alignment = ALIGN_RIGHT_MIDDLE;
     const terminalCell = ws.getCell(r, 14);
     terminalCell.value = row.terminalAllowanceUsd ?? 0;
     terminalCell.numFmt = AMOUNT_FMT;
+    terminalCell.alignment = ALIGN_RIGHT_MIDDLE;
     const rateCell = ws.getCell(r, 15);
     rateCell.value = rowRate;
     rateCell.numFmt = "#,##0";
+    rateCell.alignment = ALIGN_RIGHT_MIDDLE;
     const amountCell = ws.getCell(r, 16);
     amountCell.value = Math.round(amountMmk);
     amountCell.numFmt = AMOUNT_FMT;
+    amountCell.alignment = ALIGN_RIGHT_MIDDLE;
     const purposeCell = ws.getCell(r, 17);
     purposeCell.value = row.purpose;
-    purposeCell.alignment = { wrapText: true, vertical: "top" };
+    purposeCell.alignment = { ...ALIGN_LEFT_MIDDLE, wrapText: true };
     ws.getCell(r, 18).value = row.ipoNumber || null;
     ws.getCell(r, 19).value = row.remark || null;
     tintRow(r);
@@ -184,11 +211,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   for (const trip of form.trips) {
     const rowCalcs = trip.rows.map((r) => calcRow(r, rateForRow(r)));
     const tripCalc = calcClaimTrip(trip, rateForRow);
+    const tripFirstRow = row;
 
     trip.rows.forEach((r, i) => {
       writeRow(row, r, i === 0, rateForRow(r), rowCalcs[i].perDiemUsd, rowCalcs[i].amountMmk);
       row += 1;
     });
+
+    const tripLastRow = row - 1;
+    if (tripLastRow > tripFirstRow) {
+      ws.mergeCells(tripFirstRow, 2, tripLastRow, 2);
+    }
 
     const subDays = trip.rows.reduce((sum, r) => sum + (r.noOfDays ?? 0), 0);
     const subPerDiem = tripCalc.subtotalPerDiemUsd;
@@ -200,23 +233,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ws.mergeCells(row, 4, row, 8);
     const subNameCell = ws.getCell(row, 4);
     subNameCell.value = travellerCapacity;
-    subNameCell.alignment = { ...subNameCell.alignment, wrapText: true, vertical: "middle" };
-    ws.getCell(row, 9).value = subDays;
+    subNameCell.alignment = { ...ALIGN_LEFT_MIDDLE, wrapText: true };
+    const subDaysCell = ws.getCell(row, 9);
+    subDaysCell.value = subDays;
+    subDaysCell.alignment = ALIGN_CENTER_MIDDLE;
     const subPerDiemCell = ws.getCell(row, 11);
     subPerDiemCell.value = Math.round(subPerDiem * 100) / 100;
-    subPerDiemCell.numFmt = "#,##0.00";
+    subPerDiemCell.numFmt = PER_DIEM_DISPLAY_FMT;
+    subPerDiemCell.alignment = ALIGN_RIGHT_MIDDLE;
     const subTravelCell = ws.getCell(row, 12);
     subTravelCell.value = subTravel;
     subTravelCell.numFmt = AMOUNT_FMT;
+    subTravelCell.alignment = ALIGN_RIGHT_MIDDLE;
     const subAirCell = ws.getCell(row, 13);
     subAirCell.value = subAir;
     subAirCell.numFmt = AMOUNT_FMT;
+    subAirCell.alignment = ALIGN_RIGHT_MIDDLE;
     const subTerminalCell = ws.getCell(row, 14);
     subTerminalCell.value = subTerminal;
     subTerminalCell.numFmt = AMOUNT_FMT;
+    subTerminalCell.alignment = ALIGN_RIGHT_MIDDLE;
     const subAmountCell = ws.getCell(row, 16);
     subAmountCell.value = Math.round(subAmount);
     subAmountCell.numFmt = AMOUNT_FMT;
+    subAmountCell.alignment = ALIGN_RIGHT_MIDDLE;
     for (let c = 1; c <= COLS; c++) {
       fillCell(ws.getCell(row, c), YELLOW_FILL);
       ws.getCell(row, c).border = THIN_BORDER;
@@ -234,18 +274,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const grandRow = row;
   ws.mergeCells(grandRow, 1, grandRow, 8);
   ws.getCell(grandRow, 1).value = "Grand Total";
-  ws.getCell(grandRow, 9).value = grandDays;
+  const grandDaysCell = ws.getCell(grandRow, 9);
+  grandDaysCell.value = grandDays;
+  grandDaysCell.alignment = ALIGN_CENTER_MIDDLE;
   const grandPerDiemCell = ws.getCell(grandRow, 11);
   grandPerDiemCell.value = Math.round(grandPerDiem * 100) / 100;
-  grandPerDiemCell.numFmt = "#,##0.00";
+  grandPerDiemCell.numFmt = PER_DIEM_DISPLAY_FMT;
+  grandPerDiemCell.alignment = ALIGN_RIGHT_MIDDLE;
   ws.getCell(grandRow, 12).value = grandTravel;
   ws.getCell(grandRow, 13).value = grandAir;
   ws.getCell(grandRow, 14).value = grandTerminal;
   const grandAmountCell = ws.getCell(grandRow, 16);
   grandAmountCell.value = Math.round(grandAmount);
   grandAmountCell.numFmt = AMOUNT_FMT;
-  ws.getCell(grandRow, 17).value = "-";
-  [12, 13, 14].forEach((c) => { ws.getCell(grandRow, c).numFmt = AMOUNT_FMT; });
+  grandAmountCell.alignment = ALIGN_RIGHT_MIDDLE;
+  const grandPurposeCell = ws.getCell(grandRow, 17);
+  grandPurposeCell.value = "-";
+  grandPurposeCell.alignment = ALIGN_LEFT_MIDDLE;
+  [12, 13, 14].forEach((c) => {
+    const cell = ws.getCell(grandRow, c);
+    cell.numFmt = AMOUNT_FMT;
+    cell.alignment = ALIGN_RIGHT_MIDDLE;
+  });
   for (let c = 1; c <= COLS; c++) {
     const cell = ws.getCell(grandRow, c);
     fillCell(cell, ORANGE_FILL);
