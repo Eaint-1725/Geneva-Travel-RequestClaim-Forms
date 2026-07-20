@@ -13,12 +13,41 @@ export interface TravelClaimHeader {
   dutyStation: string;
   /** Free-text notes, only shown in the UI and exported to Excel when team === "MAL". */
   notes: string;
+  /** Traveller's own email -- used as Reply-To on the HR notification, same role as the request's header.email. */
+  email: string;
+  /**
+   * Inside/Outside town, HIV team only -- decides whether Travel Cover/Report are required
+   * (see documentsRequired in ./documents.ts). Empty for every other team.
+   */
+  townLocation: "" | "inside" | "outside";
+}
+
+/** One file already uploaded to Vercel Blob -- the form only ever holds the resulting metadata/URL, never raw bytes. */
+export interface UploadedFile {
+  url: string;
+  pathname: string;
+  name: string;
+  size: number;
+  contentType: string;
+}
+
+export interface ClaimDocuments {
+  travelRequest: UploadedFile[]; // exactly one, PDF only
+  travelCover: UploadedFile[]; // exactly one when required, PDF only
+  travelReport: UploadedFile[]; // exactly one when required, PDF only
+  voucher: UploadedFile[]; // at least one, any type
+  justification: UploadedFile[]; // optional, checkbox-gated, any type
+  approvedEmail: UploadedFile[]; // optional, checkbox-gated, any type
+  airTicket: UploadedFile[]; // optional, checkbox-gated, any type
+  declaration: UploadedFile[]; // optional, checkbox-gated, any type
+  certificate: UploadedFile[]; // optional, checkbox-gated, any type
 }
 
 export interface TravelClaimForm {
   header: TravelClaimHeader;
   trips: Trip[];
   signature: Signature | null;
+  documents: ClaimDocuments;
 }
 
 export function makeEmptyClaimHeader(): TravelClaimHeader {
@@ -30,5 +59,21 @@ export function makeEmptyClaimHeader(): TravelClaimHeader {
     position: "",
     dutyStation: "",
     notes: "",
+    email: "",
+    townLocation: "",
+  };
+}
+
+export function makeEmptyClaimDocuments(): ClaimDocuments {
+  return {
+    travelRequest: [],
+    travelCover: [],
+    travelReport: [],
+    voucher: [],
+    justification: [],
+    approvedEmail: [],
+    airTicket: [],
+    declaration: [],
+    certificate: [],
   };
 }
