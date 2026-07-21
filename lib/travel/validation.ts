@@ -1,4 +1,5 @@
 import type { Row, TravelRequestForm } from "./types";
+import { formatMonthLong } from "./format";
 
 export interface ValidationResult {
   errors: Record<string, string>;
@@ -27,7 +28,7 @@ export function validateRow(row: Row, tripId: string, month: string, errors: Rec
   const key = (f: string) => rowFieldKey(tripId, row.id, f);
 
   if (!row.date) errors[key("date")] = "Date is required";
-  else if (month && !row.date.startsWith(month)) errors[key("date")] = `Date must fall within ${month}`;
+  else if (month && row.date < `${month}-01`) errors[key("date")] = `Date must be on or after ${formatMonthLong(month)}`;
 
   if (!row.fromArea) errors[key("fromArea")] = "From (Area) is required";
   if (!row.toArea) errors[key("toArea")] = "To (Area) is required";
@@ -39,7 +40,8 @@ export function validateRow(row: Row, tripId: string, month: string, errors: Rec
   if (!row.deduction) errors[key("deduction")] = "Deductions is required";
   if (!row.purpose.trim()) errors[key("purpose")] = "Purpose of travel is required";
 
-  if (row.travelHotelMmk !== null && row.travelHotelMmk < 0) errors[key("travelHotelMmk")] = "Must be 0 or more";
+  if (row.travelHotelMmk === null) errors[key("travelHotelMmk")] = "Required";
+  else if (row.travelHotelMmk < 0) errors[key("travelHotelMmk")] = "Must be 0 or more";
   if (row.airTicketMmk !== null && row.airTicketMmk < 0) errors[key("airTicketMmk")] = "Must be 0 or more";
   if (row.terminalAllowanceUsd !== null && row.terminalAllowanceUsd < 0) errors[key("terminalAllowanceUsd")] = "Must be 0 or more";
 
