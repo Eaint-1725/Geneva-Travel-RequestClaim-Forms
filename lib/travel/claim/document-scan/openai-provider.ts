@@ -33,22 +33,22 @@ const RASTER_DPI = 300;
 
 // Loads the pdfjs-dist module into unpdf exactly once per process (repeat calls are cheap/no-op
 // via the cached promise) -- required before renderPageAsImage will work.
+//
+// Explicitly the `legacy` build: pdfjs-dist's default entry targets browsers and warns "Please
+// use the `legacy` build in Node.js environments" when loaded server-side -- under Next's webpack
+// bundling for this route that mismatch is what silently broke rasterization (it threw, and the
+// route's graceful catch swallowed the real cause). The legacy build is the Node-supported path.
 let pdfjsModuleReady: Promise<void> | null = null;
 function ensurePdfjsModule(): Promise<void> {
-  pdfjsModuleReady ??= definePDFJSModule(() => import("pdfjs-dist"));
+  pdfjsModuleReady ??= definePDFJSModule(() => import("pdfjs-dist/legacy/build/pdf.mjs"));
   return pdfjsModuleReady;
-}
-
-// TEMP LOG (remove once high-res rendering is confirmed against a real sample cover): reads a
-// PNG's width/height straight out of its IHDR chunk so we can see in the server log that the
-// rasterized page is genuinely high-res, not silently falling back to a small render.
-function pngDimensions(png: Buffer): { width: number; height: number } {
-  return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
 // Renders page 1 of the cover PDF to a PNG at RASTER_DPI. unpdf/pdfjs-dist + @napi-rs/canvas do
 // the rendering entirely in-process (no native toolchain, no external binary), which keeps this
-// safe to run in a Vercel Node serverless function.
+// safe to run in a Vercel Node serverless function. Confirmed at 2550x3300 (300 DPI Letter) against
+// a real request -- see next.config.js's serverComponentsExternalPackages for the webpack-bundling
+// fix that made this work reliably under Next's server build.
 async function rasterizeCoverPage(pdf: Buffer): Promise<Buffer> {
   await ensurePdfjsModule();
   const png = await renderPageAsImage(new Uint8Array(pdf), 1, {
@@ -56,8 +56,9 @@ async function rasterizeCoverPage(pdf: Buffer): Promise<Buffer> {
     scale: RASTER_DPI / 72,
   });
   const buffer = Buffer.from(png);
-  const { width, height } = pngDimensions(buffer);
-  console.log("[cover-scan][temp] rasterized page dimensions", { width, height });
+  if (buffer.length === 0) {
+    throw new Error("Rasterizer produced an empty PNG buffer");
+  }
   return buffer;
 }
 

@@ -14,11 +14,13 @@ export type { CheckStatus, CheckSeverity, CoverCheck, CoverScanResult, CoverScan
 // Precedence: an explicit SCAN_PROVIDER override wins if set to a recognized value; otherwise
 // OpenAI (if OPENAI_API_KEY is set) is preferred over Azure (if its vars are set), else stub.
 export function getCoverScanProvider(): CoverScanProvider {
-  const openaiKey = process.env.OPENAI_API_KEY;
-  const azureEndpoint = process.env.DOC_INTELLIGENCE_ENDPOINT;
-  const azureKey = process.env.DOC_INTELLIGENCE_KEY;
+  // Trimmed defensively -- .env values pasted with trailing whitespace/newlines are an easy way
+  // to end up with a falsy-looking-truthy key that still silently fails provider selection.
+  const openaiKey = process.env.OPENAI_API_KEY?.trim() || undefined;
+  const azureEndpoint = process.env.DOC_INTELLIGENCE_ENDPOINT?.trim() || undefined;
+  const azureKey = process.env.DOC_INTELLIGENCE_KEY?.trim() || undefined;
+  const override = process.env.SCAN_PROVIDER?.trim().toLowerCase();
 
-  const override = process.env.SCAN_PROVIDER;
   if (override === "openai" && openaiKey) return new OpenAiCoverScanProvider(openaiKey);
   if (override === "azure" && azureEndpoint && azureKey) return new AzureCoverScanProvider(azureEndpoint, azureKey);
   if (override === "stub") return new StubCoverScanProvider();
