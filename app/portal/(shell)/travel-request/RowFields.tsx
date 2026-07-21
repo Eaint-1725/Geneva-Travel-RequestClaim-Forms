@@ -79,7 +79,7 @@ export default function RowFields({
             {DEDUCTIONS.map((d) => <option key={d.label} value={d.label}>{d.label}</option>)}
           </select>
         </Field>
-        <Field label="Travel cost + Hotel Bill (MMK, optional)" error={errors.travelHotelMmk} width="w-44">
+        <Field label="Travel cost + Hotel Bill (MMK)" error={errors.travelHotelMmk} width="w-44">
           <input type="number" min="0" className={`${inputCls} w-full`} value={row.travelHotelMmk ?? ""} onChange={(e) => set("travelHotelMmk", numOrNull(e.target.value))} data-testid={tid("travel-hotel")} />
         </Field>
         <Field label={`Air Ticket Cost (MMK, ${row.mode === "Air" ? "required" : "optional"})`} error={errors.airTicketMmk} width="w-40">
