@@ -9,6 +9,13 @@ import type { CoverCheck, CheckSeverity, CoverScanProvider, CoverScanResult } fr
 // The model is trusted for `status` and `message` per check ONLY. `label` and `severity` are
 // owned entirely by our code (CHECK_LABELS / SEVERITY_BY_ID below) so a hallucinated or malformed
 // model response can never change what blocks submit or how a check is presented.
+//
+// Signature checks (SIGNATURE_CHECK_IDS) get one more layer of code ownership on top of that:
+// image-based signature judgement is the least reliable thing an LLM can attest to here (it can't
+// verify a signature is genuine, and can conflate a printed label or a nearby date with an actual
+// mark in the box) -- so their `status` is always forced to "warn" and their `message` is always
+// one of our own two fixed strings, never the model's freeform text. A confident green pass on a
+// signature would be actively misleading, so the model is never allowed to produce one.
 
 const DEFAULT_MODEL = "gpt-4o";
 
@@ -49,6 +56,13 @@ function severityFor(id: CheckId): CheckSeverity {
   return BLOCK_CHECK_IDS.has(id) ? "block" : "warn";
 }
 
+// Image-judgement signature checks -- see the file-level comment. Currently just the SSA holder
+// signature, but any future Section III signature judgement belongs in this same set.
+const SIGNATURE_CHECK_IDS: ReadonlySet<CheckId> = new Set(["ssa_signature"]);
+
+const SIGNATURE_LOOKS_EMPTY_MESSAGE = "The SSA holder signature box looks empty — please confirm it is signed.";
+const SIGNATURE_LOOKS_SIGNED_MESSAGE = "Please confirm the SSA holder signature is present (automated signature checks are approximate).";
+
 const SUPERVISOR_NAME = "Ei Thae Phyu";
 const FINANCE_NAME = "Theint Theint Thu";
 
@@ -63,12 +77,12 @@ Rules per check:
 - hotel_meals: "pass" only if BOTH a Hotel Yes/No answer AND a Meals Yes/No answer are present -- each may be a written Yes/No or a ticked checkbox.
 - itinerary: "pass" if the itinerary table has at least one populated row.
 - duty_report: "pass" if "Duty Travel report submitted" has a Yes/No answer.
-- ssa_signature: "pass" if the SSA holder signature box is signed AND has a date beside it. This is an approximate visual judgement.
+- ssa_signature: judge ONLY the content actually inside the SSA holder signature box. A signature counts ONLY if there is visible handwriting/ink INSIDE the box. A printed label such as "Signature SSA holder:" is NOT a signature. A Date next to the box is NOT a signature, and does not make an empty box count as signed. If the box is blank apart from the printed label, this is "fail" (not signed). If there is clear handwriting/ink inside the box, this is "pass". In your message for this check, state plainly what you observe in the box itself (e.g. "box appears empty" or "handwriting present in the box").
 - total_amount: "pass" if a Total Travel Claim amount in MMK is present on the form.
 - section_iii_present: "fail" if Section III (Approvals) is missing from the page entirely; "pass" if present.
 - section_iii_names: "pass" only if, within Section III, the supervisor/authorized officer name is "${SUPERVISOR_NAME}" AND the finance staff name is "${FINANCE_NAME}". Allow minor OCR/handwriting spelling variance when matching these two names.
 
-Be honest about uncertainty: if you cannot clearly read a field, use status "warn" with a message saying you couldn't confirm it -- never guess "pass" or "fail" when the page is unclear.
+Be honest about uncertainty: if you cannot clearly read a field, use status "warn" with a message saying you couldn't confirm it -- never guess "pass" or "fail" when the page is unclear. Do not infer a field is present from a nearby label, heading, or date -- judge each field by what is actually filled in. If you cannot clearly see the content, mark it "warn" with "couldn't confirm", never "pass".
 
 Respond with ONLY the JSON object described by the schema -- no prose, no markdown code fences, no extra commentary.`;
 
@@ -147,6 +161,22 @@ function buildChecks(raw: RawModelResult): CoverCheck[] {
 
   return KNOWN_CHECK_IDS.map((id) => {
     const entry = byId.get(id);
+
+    // Signature checks: our code owns both status and message outright -- the model's read is
+    // advisory only (see the file-level comment). Status is always "warn"; the message picks
+    // between our two fixed strings based on whether the model's own read leaned "signed"
+    // (status "pass") or not (anything else, including "couldn't tell").
+    if (SIGNATURE_CHECK_IDS.has(id)) {
+      const looksSigned = entry?.status === "pass";
+      return {
+        id,
+        label: CHECK_LABELS[id],
+        status: "warn",
+        severity: severityFor(id),
+        message: looksSigned ? SIGNATURE_LOOKS_SIGNED_MESSAGE : SIGNATURE_LOOKS_EMPTY_MESSAGE,
+      };
+    }
+
     const status: CoverCheck["status"] = entry && isCheckStatus(entry.status) ? entry.status : "warn";
     const message = entry?.message ?? "Couldn't confirm — the scan didn't return a result for this check.";
     return { id, label: CHECK_LABELS[id], status, severity: severityFor(id), message };
