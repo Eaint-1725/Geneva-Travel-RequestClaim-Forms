@@ -16,10 +16,11 @@ export interface TravelClaimHeader {
   /** Traveller's own email -- used as Reply-To on the HR notification, same role as the request's header.email. */
   email: string;
   /**
-   * Inside/Outside town, HIV team only -- decides whether Travel Cover/Report are required
-   * (see documentsRequired in ./documents.ts). Empty for every other team.
+   * In-town/Out-of-town, HIV team only -- decides whether Travel Cover/Report are required
+   * (see coverReportRequired in ./documents.ts). Empty for every other team, and also the
+   * fail-safe "not yet chosen" state for HIV -- treated as required, same as out-of-town.
    */
-  townLocation: "" | "inside" | "outside";
+  travelArea: "" | "in_town" | "out_of_town";
 }
 
 /** One file already uploaded to Vercel Blob -- the form only ever holds the resulting metadata/URL, never raw bytes. */
@@ -75,7 +76,7 @@ export function makeEmptyClaimHeader(): TravelClaimHeader {
     dutyStation: "",
     notes: "",
     email: "",
-    townLocation: "",
+    travelArea: "",
   };
 }
 

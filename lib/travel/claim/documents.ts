@@ -61,11 +61,12 @@ export function totalDocumentBytes(documents: ClaimDocuments): number {
 }
 
 /**
- * Travel Cover/Report are always required, EXCEPT for HIV team travelling inside town.
- * A blank team (not yet chosen) is treated as "required" -- the safe default, and the
- * separate "Team is required" error already flags the real problem in that case.
+ * Travel Cover/Report are always required, EXCEPT for HIV team travelling in-town.
+ * A blank team (not yet chosen), or HIV with Travel area not yet chosen, is treated as
+ * "required" -- the fail-safe default. An unselected dropdown must never silently skip the
+ * Cover/Report requirement, so only an explicit "in_town" choice makes them optional.
  */
-export function coverReportRequired(header: Pick<TravelClaimHeader, "team" | "townLocation">): boolean {
+export function coverReportRequired(header: Pick<TravelClaimHeader, "team" | "travelArea">): boolean {
   if (header.team !== "HIV") return true;
-  return header.townLocation === "outside";
+  return header.travelArea !== "in_town";
 }

@@ -115,27 +115,29 @@ export default function TravelClaimPage() {
   const reportScanUnavailable = reportScan?.scanAvailable === false;
 
   // Sequential unlock (see the plan this shipped with, §C), applied to each document
-  // independently: when Cover/Report aren't required at all, the gate never applies to either.
-  // Otherwise each opens once its own scan has run AND either every required check passes/is
-  // overridden, or (scan-outage fallback, §E) the user manually acknowledged that document.
-  const coverGatePassed = !coverReport
-    ? true
-    : !coverScan
-      ? false
-      : coverScanUnavailable
-        ? coverScanManualAck
-        : coverBlockingChecks.length === 0;
-  const reportGatePassed = !coverReport
-    ? true
-    : !reportScan
-      ? false
-      : reportScanUnavailable
-        ? reportScanManualAck
-        : reportBlockingChecks.length === 0;
+  // independently. Keyed off whether a scan actually RAN, not off required-ness: "optional"
+  // (HIV in-town) governs whether the document must be provided, never whether a provided one may
+  // be invalid. So nothing uploaded passes only when the doc isn't required at all; but once a
+  // scan has run -- required or not -- the gate always depends on its real result, same strict
+  // rule as always (a failing/unconfirmed required check blocks until fixed, removed, or
+  // overridden; scan-outage fallback still needs the manual acknowledgement).
+  const coverGatePassed = coverScan
+    ? coverScanUnavailable
+      ? coverScanManualAck
+      : coverBlockingChecks.length === 0
+    : !coverReport;
+  const reportGatePassed = reportScan
+    ? reportScanUnavailable
+      ? reportScanManualAck
+      : reportBlockingChecks.length === 0
+    : !coverReport;
   // Both must pass for the dependent uploads/submit to unlock (see the plan this shipped with,
-  // §3: "If BOTH the cover and the report are required for the team, BOTH must pass").
+  // §3: "If BOTH the cover and the report are required for the team, BOTH must pass"). No longer
+  // gated on `coverReport` here -- each of the two formulas above already accounts for
+  // required-vs-optional on its own, so this generalizes correctly (an optional doc that was
+  // uploaded and is failing its scan must still block, which `coverReport &&` used to suppress).
   const docsGatePassed = coverGatePassed && reportGatePassed;
-  const docsGateActive = coverReport && !docsGatePassed;
+  const docsGateActive = !docsGatePassed;
 
   const rateForRow = useCallback((row: Row) => resolveRowRate(row.date, unRates)?.rate ?? 0, [unRates]);
   const grandTotal = useMemo(() => calcClaimGrandTotal(trips, rateForRow), [trips, rateForRow]);
@@ -161,14 +163,14 @@ export default function TravelClaimPage() {
     void loadRates(false);
   }, [loadRates]);
 
-  // Team + Inside/Outside town together decide whether Travel Cover/Report are required (see
-  // coverReportRequired). Moving away from HIV must hide the town dropdown AND clear its value,
-  // so a stale "outside" choice from a previous HIV selection can't keep blocking submit.
+  // Team + Travel area together decide whether Travel Cover/Report are required (see
+  // coverReportRequired). Moving away from HIV must hide the dropdown AND clear its value, so a
+  // stale "out_of_town" choice from a previous HIV selection can't keep blocking submit.
   useEffect(() => {
-    if (header.team !== "HIV" && header.townLocation) {
-      setHeader((h) => ({ ...h, townLocation: "" }));
+    if (header.team !== "HIV" && header.travelArea) {
+      setHeader((h) => ({ ...h, travelArea: "" }));
     }
-  }, [header.team, header.townLocation]);
+  }, [header.team, header.travelArea]);
 
   // Removing the Travel Cover file doesn't go through ClaimDocumentField's onFileAccepted (that
   // only fires on accept, not on remove) -- so watch for the field going empty here instead.
@@ -430,20 +432,26 @@ export default function TravelClaimPage() {
             <input type="text" className={`${inputCls} w-full`} value={header.dutyStation} onChange={(e) => updateHeader("dutyStation", e.target.value)} data-testid="travel-claim-duty-station" />
           </Field>
           {header.team === "HIV" && (
-            <Field label="Inside/Outside town" error={showErrors ? errors["header.townLocation"] : undefined} width="w-40">
+            <Field label="Travel area" error={showErrors ? errors["header.travelArea"] : undefined} width="w-56">
               <select
                 className={`${inputCls} w-full`}
-                value={header.townLocation}
-                onChange={(e) => updateHeader("townLocation", e.target.value as TravelClaimHeader["townLocation"])}
-                data-testid="travel-claim-town-location"
+                value={header.travelArea}
+                onChange={(e) => updateHeader("travelArea", e.target.value as TravelClaimHeader["travelArea"])}
+                data-testid="travel-claim-travel-area"
               >
-                <option value="">— select —</option>
-                <option value="inside">Inside town</option>
-                <option value="outside">Outside town</option>
+                <option value="">Select…</option>
+                <option value="in_town">In-town (within duty station)</option>
+                <option value="out_of_town">Out-of-town (outside duty station)</option>
               </select>
             </Field>
           )}
         </div>
+
+        {header.team === "HIV" && (
+          <p className="mt-0.5 text-[11px] text-gray-500" data-testid="travel-claim-travel-area-hint">
+            Out-of-town travel requires the Travel Cover and Travel Report.
+          </p>
+        )}
 
         <p className="mt-3 text-[11px] text-gray-500" data-testid="travel-claim-rate-status">
           {rateError && unRates.length === 0 ? rateError : activeRate ? formatRateCaption(activeRate) : "Loading UN rate history…"}{" "}
@@ -561,7 +569,7 @@ export default function TravelClaimPage() {
           />
           <div>
             <ClaimDocumentField
-              label={`Travel Cover (PDF, ${coverReport ? "required" : "optional"})`}
+              label={`Travel Cover (PDF, ${coverReport ? "required" : "optional for in-town travel"})`}
               testid="travel-claim-doc-travelCover"
               pdfOnly
               files={documents.travelCover}
@@ -584,7 +592,7 @@ export default function TravelClaimPage() {
           </div>
           <div>
             <ClaimDocumentField
-              label={`Travel Report (PDF, ${coverReport ? "required" : "optional"})`}
+              label={`Travel Report (PDF, ${coverReport ? "required" : "optional for in-town travel"})`}
               testid="travel-claim-doc-travelReport"
               pdfOnly
               files={documents.travelReport}

@@ -40,8 +40,8 @@ export function validateClaimForm(form: TravelClaimForm, unRates: UnRate[]): Val
   if (!header.email.trim()) errors["header.email"] = "Email is required";
   else if (!EMAIL_RE.test(header.email.trim())) errors["header.email"] = "Enter a valid email address";
 
-  if (header.team === "HIV" && !header.townLocation) {
-    errors["header.townLocation"] = "Select Inside or Outside town";
+  if (header.team === "HIV" && !header.travelArea) {
+    errors["header.travelArea"] = "Please select the travel area";
   }
 
   if (header.team === "MAL" && !header.notes.trim()) errors["header.notes"] = "Notes is required";

@@ -32,6 +32,8 @@ function buildEmailBody(
     `Traveller: ${form.header.name}`,
     `Position (Duty Station): ${form.header.position} (${form.header.dutyStation})`,
     `Team: ${form.header.team}`,
+    // Only meaningful for HIV -- blank (falsy) for every other team, so nothing shows for them.
+    ...(form.header.travelArea ? [`Travel area: ${form.header.travelArea === "out_of_town" ? "Out-of-town" : "In-town"}`] : []),
     `Month: ${form.header.month}`,
     `Submission date: ${form.header.submissionDate}`,
     `Grand total: ${formatMmk(grandTotalMmk)} MMK`,
