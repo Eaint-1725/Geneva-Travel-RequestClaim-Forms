@@ -4,7 +4,7 @@ import { validateForm } from "@/lib/travel/validation";
 import { addSubmission } from "@/lib/portal/submissions";
 import { sendGraphEmail } from "@/lib/email/graph";
 import { formatMmk, formatMonthLong } from "@/lib/travel/format";
-import type { TravelRequestForm } from "@/lib/travel/types";
+import { SUBMISSION_NOTE_MAX_LENGTH, type SubmissionMeta, type TravelRequestForm } from "@/lib/travel/types";
 
 export const runtime = "nodejs";
 // Token fetch + Graph sendMail + Excel build can run close to Vercel's default 10s function
@@ -14,8 +14,43 @@ export const maxDuration = 30;
 
 const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-function buildEmailBody(form: TravelRequestForm, grandTotalMmk: number): string {
+interface SubmitRequestBody {
+  form: TravelRequestForm;
+  meta: SubmissionMeta;
+}
+
+/** True for anything but a well-formed { type, note } -- callers must have already checked
+ * the "updated ⇒ non-empty note" rule client-side; this only guards shape/length/enum. */
+function isInvalidMeta(meta: unknown): boolean {
+  if (typeof meta !== "object" || meta === null) return true;
+  const m = meta as Record<string, unknown>;
+  if (m.type !== "new" && m.type !== "updated") return true;
+  if (typeof m.note !== "string" || m.note.length > SUBMISSION_NOTE_MAX_LENGTH) return true;
+  if (m.type === "updated" && m.note.trim().length === 0) return true;
+  return false;
+}
+
+function buildEmailSubject(form: TravelRequestForm, meta: SubmissionMeta): string {
+  const base = `${form.header.team} - ${form.header.name} - TR - ${formatMonthLong(form.header.month)}`;
+  return meta.type === "updated" ? `[UPDATED] ${base}` : base;
+}
+
+/** Lines for the block shown above the traveller/summary details -- empty when a new request
+ * has no note, so the body is byte-for-byte identical to today's when there's nothing to add. */
+function buildNoteBlockLines(meta: SubmissionMeta): string[] {
+  const note = meta.note.trim();
+  if (meta.type === "updated") {
+    return ["*** UPDATED REQUEST — this replaces a previous submission ***", `What changed: ${note}`, ""];
+  }
+  if (note) {
+    return [`Note from traveller: ${note}`, ""];
+  }
+  return [];
+}
+
+function buildEmailBody(form: TravelRequestForm, meta: SubmissionMeta, grandTotalMmk: number): string {
   return [
+    ...buildNoteBlockLines(meta),
     `Traveller: ${form.header.name}`,
     `Position (Duty Station): ${form.header.position} (${form.header.dutyStation})`,
     `Team: ${form.header.team}`,
@@ -29,8 +64,14 @@ function buildEmailBody(form: TravelRequestForm, grandTotalMmk: number): string 
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   let form: TravelRequestForm;
+  let meta: SubmissionMeta;
   try {
-    form = (await req.json()) as TravelRequestForm;
+    const body = (await req.json()) as Partial<SubmitRequestBody>;
+    if (!body.form || isInvalidMeta(body.meta)) {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+    form = body.form;
+    meta = body.meta as SubmissionMeta;
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
@@ -56,8 +97,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await sendGraphEmail({
       to: hrRecipient,
       replyTo: form.header.email,
-      subject: `${form.header.team} - ${form.header.name} - TR - ${formatMonthLong(form.header.month)}`,
-      bodyText: buildEmailBody(form, grandTotal.totalAmountMmk),
+      subject: buildEmailSubject(form, meta),
+      bodyText: buildEmailBody(form, meta, grandTotal.totalAmountMmk),
       attachment: {
         name: fileName,
         contentType: XLSX_CONTENT_TYPE,

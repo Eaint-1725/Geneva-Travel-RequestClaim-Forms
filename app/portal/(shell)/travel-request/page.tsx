@@ -6,12 +6,17 @@ import Button from "@/components/Button";
 import { calcGrandTotal } from "@/lib/travel/calc";
 import { formatMmk, formatUsd } from "@/lib/travel/format";
 import { TEAMS } from "@/lib/travel/rates";
-import { makeEmptyTrip, type Signature, type Trip, type TravelRequestForm } from "@/lib/travel/types";
+import { makeEmptyTrip, type Signature, type SubmissionMeta, type Trip, type TravelRequestForm } from "@/lib/travel/types";
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
 import { validateForm } from "@/lib/travel/validation";
 import Field from "@/components/travel/Field";
 import SignaturePad from "@/components/travel/SignaturePad";
+import SubmitNoteDialog, { isSubmitNoteValid } from "@/components/travel/SubmitNoteDialog";
 import TripBlock from "./TripBlock";
+
+function makeEmptySubmitMeta(): SubmissionMeta {
+  return { type: "new", note: "" };
+}
 
 const inputCls = "rounded border border-gray-300 px-2 py-1.5 text-sm";
 
@@ -42,6 +47,9 @@ export default function TravelRequestPage() {
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [submitMeta, setSubmitMeta] = useState<SubmissionMeta>(makeEmptySubmitMeta());
 
   const [unRates, setUnRates] = useState<UnRate[]>([]);
   const [rateError, setRateError] = useState<string | null>(null);
@@ -122,17 +130,24 @@ export default function TravelRequestPage() {
     setNotice(null);
   }
 
-  async function handleSubmit() {
+  function handleSubmitClick() {
     setApiError(null);
     setNotice(null);
+    // Keep the existing validation gate first -- the dialog only opens once the form itself
+    // is valid; it must never become a way to bypass required-field checks.
     if (!isValid) return;
+    setDialogOpen(true);
+  }
+
+  async function handleConfirmSend() {
+    if (!isSubmitNoteValid(submitMeta)) return;
 
     setBusy(true);
     try {
       const res = await fetch("/api/travel/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ form, meta: submitMeta }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -144,6 +159,7 @@ export default function TravelRequestPage() {
       const safeName = (header.name || "travel-request").replace(/[^a-z0-9]+/gi, "-");
       const fileName = nameMatch?.[1] ?? `Travel Request - ${safeName} - ${header.month || "draft"}.xlsx`;
 
+      setDialogOpen(false);
       router.push("/portal/travel-request/success");
 
       const url = URL.createObjectURL(blob);
@@ -155,10 +171,15 @@ export default function TravelRequestPage() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
+      setDialogOpen(false);
       setApiError(e instanceof Error ? e.message : "Couldn't email HR — please try again");
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleCancelDialog() {
+    setDialogOpen(false);
   }
 
   return (
@@ -306,7 +327,7 @@ export default function TravelRequestPage() {
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5">
         <div className="flex items-center gap-2">
-          <Button type="button" variant="primary" onClick={() => void handleSubmit()} disabled={busy || !isValid} data-testid="travel-submit-btn">
+          <Button type="button" variant="primary" onClick={handleSubmitClick} disabled={busy || !isValid} data-testid="travel-submit-btn">
             {busy ? "Sending…" : "Submit travel request"}
           </Button>
           <Button type="button" variant="secondary" onClick={handleClear} disabled={busy} data-testid="travel-clear-btn">
@@ -315,6 +336,15 @@ export default function TravelRequestPage() {
         </div>
         {!isValid && <p className="mt-1 text-xs text-gray-400">Fill in every required field above to enable submit.</p>}
       </div>
+
+      <SubmitNoteDialog
+        open={dialogOpen}
+        meta={submitMeta}
+        onChange={setSubmitMeta}
+        onCancel={handleCancelDialog}
+        onConfirm={() => void handleConfirmSend()}
+        busy={busy}
+      />
     </div>
   );
 }

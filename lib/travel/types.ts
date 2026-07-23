@@ -47,6 +47,17 @@ export interface TravelRequestForm {
   signature: Signature | null;
 }
 
+/** Whether this submission is brand new or replaces one HR already received -- drives the
+ * "[UPDATED]" subject prefix and the note block in the email body (see lib/email builders). */
+export type SubmissionType = "new" | "updated";
+
+export const SUBMISSION_NOTE_MAX_LENGTH = 500;
+
+export interface SubmissionMeta {
+  type: SubmissionType;
+  note: string;
+}
+
 export function makeEmptyRow(): Row {
   return {
     id: `row-${Math.random().toString(36).slice(2, 10)}`,
