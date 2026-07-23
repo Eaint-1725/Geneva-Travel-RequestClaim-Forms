@@ -6,6 +6,7 @@ import { getUnRates } from "@/lib/travel/un-rates-cache";
 import { sendGraphEmailWithAttachments, type GraphEmailAttachmentBuffer } from "@/lib/email/graph";
 import { formatMmk, formatMonthLong } from "@/lib/travel/format";
 import { ALL_DOC_KEYS, DOC_LABELS, MAX_TOTAL_ATTACH_BYTES, type DocKey } from "@/lib/travel/claim/documents";
+import { deleteClaimUploadBlobs } from "@/lib/travel/claim/blob-cleanup";
 import type { TravelClaimForm, UploadedFile } from "@/lib/travel/claim/types";
 
 export const runtime = "nodejs";
@@ -136,7 +137,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log("[claim-submit] step=sendMail ok");
   } catch (e) {
     console.error("[claim-submit] step=sendMail error", e);
+    // ORDERING: the email did not go out -- keep every blob so the user can retry without
+    // re-uploading. Cleanup below must only ever run after this point, never before it.
     return NextResponse.json({ error: "Couldn't email HR — please try again" }, { status: 502 });
+  }
+
+  // Blob is a STAGING area only, between upload and submission -- these are HR claim documents
+  // (names, positions, totals, signatures) and shouldn't persist in storage once safely emailed.
+  // Delete exactly this submission's own document URLs -- see deleteClaimUploadBlobs's own
+  // comment for why this must never become a claim-uploads/ prefix sweep (other travellers may be
+  // uploading concurrently under that same prefix). A failed cleanup is never shown to the user --
+  // the submission already succeeded -- it's only logged server-side.
+  try {
+    const deleted = await deleteClaimUploadBlobs(allDocs.map((d) => d.file.url));
+    console.log(`[claim-submit] step=cleanupBlobs ok deleted=${deleted.length}/${allDocs.length}`);
+  } catch (e) {
+    console.error("[claim-submit] step=cleanupBlobs error (non-fatal, email already sent)", e);
   }
 
   return NextResponse.json({ ok: true, attachedCount: attached.length, linkedCount: linked.length });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
-import { MAX_FILE_BYTES, formatBytes, isPdfFile } from "@/lib/travel/claim/documents";
+import { CLAIM_UPLOADS_PREFIX, MAX_FILE_BYTES, formatBytes, isPdfFile } from "@/lib/travel/claim/documents";
 
 // Server-upload route for Travel Claim's supporting documents. The browser POSTs the file as
 // multipart form data here; this route uploads it to Blob via put() and returns the blob URL,
@@ -31,7 +31,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: `"${file.name}" isn't a PDF — only PDF files are accepted here.` }, { status: 415 });
     }
 
-    const blob = await put(`claim-uploads/${file.name}`, file, {
+    const blob = await put(`${CLAIM_UPLOADS_PREFIX}${file.name}`, file, {
       access: "private",
       addRandomSuffix: true,
       contentType: file.type || undefined,

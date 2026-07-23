@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Dropzone from "@/components/Dropzone";
+import { deleteClaimBlobs } from "@/lib/travel/claim/blob-client";
 import { MAX_FILE_BYTES, formatBytes, isPdfFile } from "@/lib/travel/claim/documents";
 import type { UploadedFile } from "@/lib/travel/claim/types";
 
@@ -93,6 +94,12 @@ export default function ClaimDocumentField({
         }
         const blob = (await res.json()) as { url: string; pathname: string; name: string; size: number };
 
+        // Replacing a single-file field (e.g. a new Travel Cover over an existing one): capture
+        // whatever was there before this upload commits, so its blob can be deleted once the new
+        // file is safely in -- otherwise every replacement orphans the file it replaced. Multi-file
+        // fields never replace (they append), so there's nothing to capture there.
+        const replaced = multiple ? [] : filesRef.current;
+
         // Fire the (CPU-heavier) pre-submit scan only once this file's own Blob upload has
         // actually finished -- the scan and the upload used to fire concurrently, and the scan's
         // PDF rasterization competing with the upload for the same Node event loop is what made
@@ -112,6 +119,7 @@ export default function ClaimDocumentField({
         filesRef.current = next;
         onChange(next);
         setPending((p) => p.filter((e) => e.id !== entryId));
+        if (replaced.length > 0) deleteClaimBlobs(replaced.map((r) => r.url));
       } catch (e) {
         const message = e instanceof Error ? e.message : "please try again";
         setPending((p) => p.map((entry) => (entry.id === entryId ? { ...entry, status: "error", message } : entry)));
@@ -121,7 +129,11 @@ export default function ClaimDocumentField({
   }
 
   function removeFile(url: string) {
+    // Optimistic: drop it from form state immediately, don't make the user wait on the network.
+    // The delete is best-effort cleanup (see deleteClaimBlobs) -- a failure here is only logged,
+    // never surfaced, and the file is already gone from the UI either way.
     onChange(files.filter((f) => f.url !== url));
+    deleteClaimBlobs([url]);
   }
 
   function dismissError(id: string) {

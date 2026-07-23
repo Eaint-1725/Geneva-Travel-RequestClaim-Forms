@@ -73,6 +73,19 @@ const OPENAI_CALL_TIMEOUT_MS = 60_000;
 const OVERALL_SCAN_TIMEOUT_MS = 70_000;
 const SCAN_TIMEOUT_MESSAGE = "Scan timed out — please verify manually.";
 
+// Concurrent claims (three travellers submitting at once = three OpenAI calls at once) can hit
+// OpenAI's rate limit. The SDK already retries 429s itself with a short exponential backoff --
+// maxRetries is set explicitly here (rather than relying on its own default) so that behaviour
+// can't silently change out from under this route on an SDK bump. If every retry still comes back
+// 429, that's reported as a distinct "busy" message rather than the generic scan_unavailable one,
+// so the user knows to just try again shortly instead of assuming something is broken.
+const OPENAI_MAX_RETRIES = 2;
+const RATE_LIMIT_MESSAGE = "The document checker is busy right now — please try again in a few minutes.";
+
+function isRateLimitError(e: unknown): boolean {
+  return e instanceof OpenAI.APIError && e.status === 429;
+}
+
 // Loads the pdfjs-dist module into unpdf exactly once per process (repeat calls are cheap/no-op
 // via the cached promise) -- required before rendering will work.
 //
@@ -237,7 +250,7 @@ async function requestScan(
     },
     // Aborts the network call itself rather than just racing it -- see OVERALL_SCAN_TIMEOUT_MS's
     // comment for why we also need the outer race (rasterization has no equivalent cancellation).
-    { timeout: OPENAI_CALL_TIMEOUT_MS },
+    { timeout: OPENAI_CALL_TIMEOUT_MS, maxRetries: OPENAI_MAX_RETRIES },
   );
 
   const result = parseModelJson(response.output_text);
@@ -490,7 +503,15 @@ export class OpenAiDocScanProvider implements DocScanProvider {
     const model = process.env.OPENAI_SCAN_MODEL || DEFAULT_MODEL;
     const pageImage = await rasterizePage(pdf);
 
-    const raw = await requestScan(client, model, pageImage, COVER_SYSTEM_PROMPT, COVER_CHECK_IDS);
+    let raw: RawModelResult | null;
+    try {
+      raw = await requestScan(client, model, pageImage, COVER_SYSTEM_PROMPT, COVER_CHECK_IDS);
+    } catch (e) {
+      // The SDK already retried (see OPENAI_MAX_RETRIES) -- this only fires once every retry is
+      // exhausted, so a busy-provider message is accurate here, not a false alarm.
+      if (isRateLimitError(e)) return unavailableResult(RATE_LIMIT_MESSAGE);
+      throw e;
+    }
     if (!raw) {
       return unavailableResult("Automated scan returned an unreadable result — please verify the cover manually.");
     }
@@ -508,7 +529,15 @@ export class OpenAiDocScanProvider implements DocScanProvider {
     const model = process.env.OPENAI_SCAN_MODEL || DEFAULT_MODEL;
     const pageImage = await rasterizePage(pdf);
 
-    const raw = await requestScan(client, model, pageImage, REPORT_SYSTEM_PROMPT, REPORT_CHECK_IDS);
+    let raw: RawModelResult | null;
+    try {
+      raw = await requestScan(client, model, pageImage, REPORT_SYSTEM_PROMPT, REPORT_CHECK_IDS);
+    } catch (e) {
+      // The SDK already retried (see OPENAI_MAX_RETRIES) -- this only fires once every retry is
+      // exhausted, so a busy-provider message is accurate here, not a false alarm.
+      if (isRateLimitError(e)) return unavailableResult(RATE_LIMIT_MESSAGE);
+      throw e;
+    }
     if (!raw) {
       return unavailableResult("Automated scan returned an unreadable result — please verify the report manually.");
     }

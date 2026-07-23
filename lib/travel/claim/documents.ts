@@ -14,6 +14,11 @@ export const MAX_FILE_BYTES = 4 * 1024 * 1024; // 4 MB
 /** Total attachment budget for the HR email (Excel + files) -- stays well under M365's ~25-35MB ceiling. */
 export const MAX_TOTAL_ATTACH_BYTES = 20 * 1024 * 1024; // 20 MB
 
+/** Blob storage is a STAGING area only, between upload and submission -- never permanent storage
+ * (see lib/travel/claim/blob-cleanup.ts). Shared by the upload route (where the prefix is set)
+ * and the cleanup path (where it's validated) so the two can never drift apart. */
+export const CLAIM_UPLOADS_PREFIX = "claim-uploads/";
+
 export type SingleDocKey = "travelRequest" | "travelCover" | "travelReport";
 export type OptionalDocKey = "justification" | "approvedEmail" | "airTicket" | "declaration" | "certificate";
 export type DocKey = SingleDocKey | "voucher" | OptionalDocKey;
