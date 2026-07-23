@@ -7,7 +7,7 @@ import Field from "@/components/travel/Field";
 import SignaturePad from "@/components/travel/SignaturePad";
 import { calcClaimGrandTotal } from "@/lib/travel/claim/calc";
 import { resolveRowRate } from "@/lib/travel/claim/rate";
-import type { CoverScanResult } from "@/lib/travel/claim/document-scan";
+import type { DocScanResult } from "@/lib/travel/claim/document-scan";
 import {
   makeEmptyClaimDocuments,
   makeEmptyClaimHeader,
@@ -32,7 +32,7 @@ import { makeEmptyTrip, type Row, type Signature, type Trip } from "@/lib/travel
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
 import ClaimTripBlock from "./ClaimTripBlock";
 import ClaimDocumentField from "./ClaimDocumentField";
-import CoverScanPanel from "./CoverScanPanel";
+import DocScanPanel from "./DocScanPanel";
 
 const inputCls = "rounded border border-gray-300 px-2 py-1.5 text-sm";
 
@@ -55,15 +55,32 @@ export default function TravelClaimPage() {
   // click can't race an in-flight upload and submit a claim missing a document the user just added.
   const [uploadingFields, setUploadingFields] = useState<Set<string>>(new Set());
 
-  // Pre-submit automated scan of the Travel Cover PDF (see lib/travel/claim/document-scan).
-  // Runs in parallel with that field's Blob upload, not after it -- the scan uses the browser's
-  // own File, independent of Blob storage.
-  const [coverScan, setCoverScan] = useState<CoverScanResult | null>(null);
+  // Pre-submit automated scans of the Travel Cover and Travel Report PDFs (see
+  // lib/travel/claim/document-scan). Each starts once that field's own Blob upload finishes (see
+  // ClaimDocumentField's onFileAccepted) -- the scan uses the browser's own File, independent of
+  // Blob storage, but is sequenced after the upload so the two don't compete for the server's
+  // event loop at once. The two documents scan independently (separate state, separate requests)
+  // but gate together -- see docsGateActive below.
+  const [coverScan, setCoverScan] = useState<DocScanResult | null>(null);
   const [coverScanning, setCoverScanning] = useState(false);
-  const [coverScanAck, setCoverScanAck] = useState(false);
+  // Only meaningful in the scan-outage fallback (scanAvailable:false) -- unlocks the gate via a
+  // manual "I verified it myself" acknowledgement instead of per-check results.
+  const [coverScanManualAck, setCoverScanManualAck] = useState(false);
+  // Per-check overrides for a required check the scan got wrong (see DocScanPanel and the plan
+  // this shipped with, §D) -- ids of checks the user explicitly confirmed are present despite the
+  // scan reporting otherwise. Logged in the submission (coverScanStatus.overriddenChecks) so HR
+  // can see what was bypassed.
+  const [overriddenCheckIds, setOverriddenCheckIds] = useState<Set<string>>(new Set());
   // Guards a stale in-flight scan response from clobbering state after the file is removed or
   // replaced with a newer one.
   const scanRequestIdRef = useRef(0);
+
+  // Same pattern as the cover's scan state, one level down -- see the Travel Report scan plan.
+  const [reportScan, setReportScan] = useState<DocScanResult | null>(null);
+  const [reportScanning, setReportScanning] = useState(false);
+  const [reportScanManualAck, setReportScanManualAck] = useState(false);
+  const [reportOverriddenCheckIds, setReportOverriddenCheckIds] = useState<Set<string>>(new Set());
+  const reportScanRequestIdRef = useRef(0);
 
   // Same interacted/showErrors pattern as Travel Request -- a brand-new blank form shouldn't
   // greet the user with every field already red.
@@ -82,13 +99,43 @@ export default function TravelClaimPage() {
   const coverReport = coverReportRequired(header);
   const totalBytes = useMemo(() => totalDocumentBytes(documents), [documents]);
 
-  const coverScanBlocked = coverScan?.hasBlockingFailure ?? false;
-  const coverScanNeedsAck =
-    !!coverScan &&
-    !coverScanBlocked &&
-    !coverScanAck &&
-    (coverScan.scanAvailable === false ||
-      coverScan.checks.some((c) => c.status === "warn" || (c.status === "fail" && c.severity === "warn")));
+  // Every required check not yet "pass" and not explicitly overridden -- see DocScanPanel and
+  // the plan this shipped with (§B/§D). Empty once every required check passes, or every failing
+  // one has been individually overridden.
+  const coverBlockingChecks = useMemo(
+    () => (coverScan?.checks ?? []).filter((c) => c.severity === "block" && c.status !== "pass" && !overriddenCheckIds.has(c.id)),
+    [coverScan, overriddenCheckIds],
+  );
+  const coverScanUnavailable = coverScan?.scanAvailable === false;
+
+  const reportBlockingChecks = useMemo(
+    () => (reportScan?.checks ?? []).filter((c) => c.severity === "block" && c.status !== "pass" && !reportOverriddenCheckIds.has(c.id)),
+    [reportScan, reportOverriddenCheckIds],
+  );
+  const reportScanUnavailable = reportScan?.scanAvailable === false;
+
+  // Sequential unlock (see the plan this shipped with, §C), applied to each document
+  // independently: when Cover/Report aren't required at all, the gate never applies to either.
+  // Otherwise each opens once its own scan has run AND either every required check passes/is
+  // overridden, or (scan-outage fallback, §E) the user manually acknowledged that document.
+  const coverGatePassed = !coverReport
+    ? true
+    : !coverScan
+      ? false
+      : coverScanUnavailable
+        ? coverScanManualAck
+        : coverBlockingChecks.length === 0;
+  const reportGatePassed = !coverReport
+    ? true
+    : !reportScan
+      ? false
+      : reportScanUnavailable
+        ? reportScanManualAck
+        : reportBlockingChecks.length === 0;
+  // Both must pass for the dependent uploads/submit to unlock (see the plan this shipped with,
+  // §3: "If BOTH the cover and the report are required for the team, BOTH must pass").
+  const docsGatePassed = coverGatePassed && reportGatePassed;
+  const docsGateActive = coverReport && !docsGatePassed;
 
   const rateForRow = useCallback((row: Row) => resolveRowRate(row.date, unRates)?.rate ?? 0, [unRates]);
   const grandTotal = useMemo(() => calcClaimGrandTotal(trips, rateForRow), [trips, rateForRow]);
@@ -131,10 +178,22 @@ export default function TravelClaimPage() {
     if (documents.travelCover.length === 0) {
       scanRequestIdRef.current++;
       setCoverScan(null);
-      setCoverScanAck(false);
+      setCoverScanManualAck(false);
+      setOverriddenCheckIds(new Set());
       setCoverScanning(false);
     }
   }, [documents.travelCover.length]);
+
+  // Same reset as the cover's, for the Travel Report field.
+  useEffect(() => {
+    if (documents.travelReport.length === 0) {
+      reportScanRequestIdRef.current++;
+      setReportScan(null);
+      setReportScanManualAck(false);
+      setReportOverriddenCheckIds(new Set());
+      setReportScanning(false);
+    }
+  }, [documents.travelReport.length]);
 
   function updateHeader<K extends keyof TravelClaimHeader>(field: K, value: TravelClaimHeader[K]) {
     setInteracted(true);
@@ -158,13 +217,14 @@ export default function TravelClaimPage() {
   async function handleCoverFileAccepted(file: File) {
     const requestId = ++scanRequestIdRef.current;
     setCoverScan(null);
-    setCoverScanAck(false);
+    setCoverScanManualAck(false);
+    setOverriddenCheckIds(new Set());
     setCoverScanning(true);
     try {
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch("/api/travel/claim/scan-cover", { method: "POST", body: fd });
-      const result = (await res.json()) as CoverScanResult;
+      const result = (await res.json()) as DocScanResult;
       if (scanRequestIdRef.current === requestId) setCoverScan(result);
     } catch {
       // The route itself already degrades gracefully on a provider error -- this catch only
@@ -187,6 +247,54 @@ export default function TravelClaimPage() {
     } finally {
       if (scanRequestIdRef.current === requestId) setCoverScanning(false);
     }
+  }
+
+  function handleOverrideCheck(checkId: string) {
+    setOverriddenCheckIds((prev) => new Set(prev).add(checkId));
+  }
+
+  // Mirrors handleCoverFileAccepted, plus forwards the already-selected team as scan context (the
+  // TU's Clearance rule is team-conditional -- see openai-provider.ts's scanTravelReport).
+  async function handleReportFileAccepted(file: File) {
+    const requestId = ++reportScanRequestIdRef.current;
+    setReportScan(null);
+    setReportScanManualAck(false);
+    setReportOverriddenCheckIds(new Set());
+    setReportScanning(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("team", header.team);
+      const res = await fetch("/api/travel/claim/scan-report", { method: "POST", body: fd });
+      const result = (await res.json()) as DocScanResult;
+      if (reportScanRequestIdRef.current === requestId) setReportScan(result);
+    } catch (e) {
+      // TEMP DIAGNOSTIC (see the Travel Report scan-unavailable investigation) -- remove once
+      // the report path is confirmed working. This client-side catch only fires if the fetch
+      // itself failed or the response wasn't JSON -- the route degrades gracefully otherwise.
+      console.error("[scan-report] client fetch/parse failed", e);
+      if (reportScanRequestIdRef.current === requestId) {
+        setReportScan({
+          checks: [
+            {
+              id: "scan_unavailable",
+              label: "Automated scan",
+              status: "warn",
+              severity: "warn",
+              message: "Automated scan unavailable — please verify the report manually.",
+            },
+          ],
+          hasBlockingFailure: false,
+          scanAvailable: false,
+        });
+      }
+    } finally {
+      if (reportScanRequestIdRef.current === requestId) setReportScanning(false);
+    }
+  }
+
+  function handleReportOverrideCheck(checkId: string) {
+    setReportOverriddenCheckIds((prev) => new Set(prev).add(checkId));
   }
 
   function toggleOptionalDoc(key: OptionalDocKey, checked: boolean) {
@@ -226,6 +334,12 @@ export default function TravelClaimPage() {
     setSignature(null);
     setDocuments(makeEmptyClaimDocuments());
     setCheckedDocs(EMPTY_CHECKED_DOCS);
+    setCoverScan(null);
+    setCoverScanManualAck(false);
+    setOverriddenCheckIds(new Set());
+    setReportScan(null);
+    setReportScanManualAck(false);
+    setReportOverriddenCheckIds(new Set());
     setInteracted(false);
     setApiError(null);
     setNotice(null);
@@ -234,14 +348,34 @@ export default function TravelClaimPage() {
   async function handleSubmit() {
     setApiError(null);
     setNotice(null);
-    if (!isValid || uploadingFields.size > 0) return;
+    if (!isValid || uploadingFields.size > 0 || docsGateActive) return;
+
+    // Attached to the submission payload for HR visibility only (see DocScanStatus) -- never
+    // consulted by validation itself, which is why this is built fresh here rather than kept in
+    // form state.
+    const coverScanStatus = coverReport
+      ? {
+          scanAvailable: coverScan?.scanAvailable ?? true,
+          overriddenChecks: (coverScan?.checks ?? [])
+            .filter((c) => overriddenCheckIds.has(c.id))
+            .map((c) => `${c.id} — ${c.label}`),
+        }
+      : undefined;
+    const reportScanStatus = coverReport
+      ? {
+          scanAvailable: reportScan?.scanAvailable ?? true,
+          overriddenChecks: (reportScan?.checks ?? [])
+            .filter((c) => reportOverriddenCheckIds.has(c.id))
+            .map((c) => `${c.id} — ${c.label}`),
+        }
+      : undefined;
 
     setBusy(true);
     try {
       const res = await fetch("/api/travel/claim/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, coverScanStatus, reportScanStatus }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -390,6 +524,30 @@ export default function TravelClaimPage() {
             : `, within the ${formatBytes(MAX_TOTAL_ATTACH_BYTES)} email attachment budget.`}
         </p>
 
+        {docsGateActive && (
+          <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700" data-testid="travel-claim-doc-gate-notice">
+            <p className="font-medium">Fix the Travel Cover/Report below before uploading the Voucher/optional documents or submitting:</p>
+            <ul className="ml-4 list-disc">
+              {!coverGatePassed && !coverScan && <li>Upload the Travel Cover PDF below to run the automated check.</li>}
+              {!coverGatePassed && coverScan && coverScanUnavailable && (
+                <li>Travel Cover: automated scan unavailable — tick the acknowledgement below its checklist to continue.</li>
+              )}
+              {!coverGatePassed &&
+                coverScan &&
+                !coverScanUnavailable &&
+                coverBlockingChecks.map((c) => <li key={`cover-${c.id}`}>Travel Cover: {c.message}</li>)}
+              {!reportGatePassed && !reportScan && <li>Upload the Travel Report PDF below to run the automated check.</li>}
+              {!reportGatePassed && reportScan && reportScanUnavailable && (
+                <li>Travel Report: automated scan unavailable — tick the acknowledgement below its checklist to continue.</li>
+              )}
+              {!reportGatePassed &&
+                reportScan &&
+                !reportScanUnavailable &&
+                reportBlockingChecks.map((c) => <li key={`report-${c.id}`}>Travel Report: {c.message}</li>)}
+            </ul>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <ClaimDocumentField
             label="Travel Request (PDF, required)"
@@ -413,18 +571,40 @@ export default function TravelClaimPage() {
               disabled={busy}
               onUploadingChange={(u) => setFieldUploading("travelCover", u)}
             />
-            <CoverScanPanel scan={coverScan} scanning={coverScanning} ack={coverScanAck} onAckChange={setCoverScanAck} />
+            <DocScanPanel
+              idPrefix="travel-claim-cover-scan"
+              docLabel="cover"
+              scan={coverScan}
+              scanning={coverScanning}
+              manualAck={coverScanManualAck}
+              onManualAckChange={setCoverScanManualAck}
+              overriddenCheckIds={overriddenCheckIds}
+              onOverrideCheck={handleOverrideCheck}
+            />
           </div>
-          <ClaimDocumentField
-            label={`Travel Report (PDF, ${coverReport ? "required" : "optional"})`}
-            testid="travel-claim-doc-travelReport"
-            pdfOnly
-            files={documents.travelReport}
-            onChange={(files) => updateDocuments("travelReport", files)}
-            error={showErrors ? errors["documents.travelReport"] : undefined}
-            disabled={busy}
-            onUploadingChange={(u) => setFieldUploading("travelReport", u)}
-          />
+          <div>
+            <ClaimDocumentField
+              label={`Travel Report (PDF, ${coverReport ? "required" : "optional"})`}
+              testid="travel-claim-doc-travelReport"
+              pdfOnly
+              files={documents.travelReport}
+              onChange={(files) => updateDocuments("travelReport", files)}
+              onFileAccepted={(file) => void handleReportFileAccepted(file)}
+              error={showErrors ? errors["documents.travelReport"] : undefined}
+              disabled={busy}
+              onUploadingChange={(u) => setFieldUploading("travelReport", u)}
+            />
+            <DocScanPanel
+              idPrefix="travel-claim-report-scan"
+              docLabel="report"
+              scan={reportScan}
+              scanning={reportScanning}
+              manualAck={reportScanManualAck}
+              onManualAckChange={setReportScanManualAck}
+              overriddenCheckIds={reportOverriddenCheckIds}
+              onOverrideCheck={handleReportOverrideCheck}
+            />
+          </div>
           <ClaimDocumentField
             label="Voucher (required, multiple files allowed)"
             testid="travel-claim-doc-voucher"
@@ -432,7 +612,7 @@ export default function TravelClaimPage() {
             files={documents.voucher}
             onChange={(files) => updateDocuments("voucher", files)}
             error={showErrors ? errors["documents.voucher"] : undefined}
-            disabled={busy}
+            disabled={busy || docsGateActive}
             onUploadingChange={(u) => setFieldUploading("voucher", u)}
           />
         </div>
@@ -446,7 +626,7 @@ export default function TravelClaimPage() {
                   type="checkbox"
                   checked={checkedDocs[key]}
                   onChange={(e) => toggleOptionalDoc(key, e.target.checked)}
-                  disabled={busy}
+                  disabled={busy || docsGateActive}
                   data-testid={`travel-claim-doc-${key}-checkbox`}
                 />
                 {DOC_LABELS[key]}
@@ -459,7 +639,7 @@ export default function TravelClaimPage() {
                     multiple
                     files={documents[key]}
                     onChange={(files) => updateDocuments(key, files)}
-                    disabled={busy}
+                    disabled={busy || docsGateActive}
                     onUploadingChange={(u) => setFieldUploading(key, u)}
                   />
                 </div>
@@ -497,7 +677,7 @@ export default function TravelClaimPage() {
             type="button"
             variant="primary"
             onClick={() => void handleSubmit()}
-            disabled={busy || !isValid || uploadingFields.size > 0 || coverScanning || coverScanBlocked || coverScanNeedsAck}
+            disabled={busy || !isValid || uploadingFields.size > 0 || coverScanning || reportScanning || docsGateActive}
             data-testid="travel-claim-submit-btn"
           >
             {busy ? "Sending…" : uploadingFields.size > 0 ? "Uploading…" : "Submit travel claim"}
@@ -508,12 +688,11 @@ export default function TravelClaimPage() {
         </div>
         {!isValid && <p className="mt-1 text-xs text-gray-400">Fill in every required field above to enable submit.</p>}
         {isValid && uploadingFields.size > 0 && <p className="mt-1 text-xs text-gray-400">Waiting for uploads to finish…</p>}
-        {isValid && uploadingFields.size === 0 && coverScanning && <p className="mt-1 text-xs text-gray-400">Checking the Travel Cover…</p>}
-        {isValid && uploadingFields.size === 0 && coverScanBlocked && (
-          <p className="mt-1 text-xs text-red-600">The Travel Cover has a blocking issue above that must be resolved before submitting.</p>
+        {isValid && uploadingFields.size === 0 && (coverScanning || reportScanning) && (
+          <p className="mt-1 text-xs text-gray-400">Checking the Travel Cover/Report…</p>
         )}
-        {isValid && uploadingFields.size === 0 && !coverScanBlocked && coverScanNeedsAck && (
-          <p className="mt-1 text-xs text-gray-400">Review the Travel Cover checklist above and tick the acknowledgement to enable submit.</p>
+        {isValid && uploadingFields.size === 0 && !coverScanning && !reportScanning && docsGateActive && (
+          <p className="mt-1 text-xs text-red-600">The Travel Cover/Report has a blocking issue above that must be resolved (or overridden) before submitting.</p>
         )}
       </div>
     </div>

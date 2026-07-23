@@ -41,9 +41,10 @@ export default function ClaimDocumentField({
   error?: string;
   disabled?: boolean;
   onUploadingChange?: (uploading: boolean) => void;
-  /** Fires once per accepted file, before its upload starts -- independent of upload success/failure.
-   * Used only by the Travel Cover field to kick off its pre-submit scan (see page.tsx); every other
-   * field simply omits this prop. */
+  /** Fires once per accepted file, right after its own Blob upload succeeds (not before/during --
+   * see handleFiles) so the scan it kicks off never competes with the upload for the event loop.
+   * Only fires on a successful upload. Used by the Travel Cover/Report fields to kick off their
+   * pre-submit scan (see page.tsx); every other field simply omits this prop. */
   onFileAccepted?: (file: File) => void;
 }) {
   const [rejectMsg, setRejectMsg] = useState<string | null>(null);
@@ -80,7 +81,6 @@ export default function ClaimDocumentField({
     for (let i = 0; i < accepted.length; i++) {
       const f = accepted[i];
       const entryId = entries[i].id;
-      onFileAccepted?.(f);
       try {
         const fd = new FormData();
         fd.append("file", f);
@@ -92,6 +92,12 @@ export default function ClaimDocumentField({
           throw new Error(body.error ?? "Upload failed");
         }
         const blob = (await res.json()) as { url: string; pathname: string; name: string; size: number };
+
+        // Fire the (CPU-heavier) pre-submit scan only once this file's own Blob upload has
+        // actually finished -- the scan and the upload used to fire concurrently, and the scan's
+        // PDF rasterization competing with the upload for the same Node event loop is what made
+        // uploads stall behind a slow scan. Sequencing them removes that contention.
+        onFileAccepted?.(f);
 
         // Resolved -- the file is in Blob and the browser has its URL. Flip this field/file
         // straight from "uploading" to "uploaded" now; nothing else needs to happen server-side.

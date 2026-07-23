@@ -43,11 +43,26 @@ export interface ClaimDocuments {
   certificate: UploadedFile[]; // optional, checkbox-gated, any type
 }
 
+/**
+ * Record of a pre-submit document scan gate (Travel Cover or Travel Report) at the moment of
+ * submit, carried along in the submission payload for HR visibility -- not consumed by validation
+ * or the Excel export. See DocScanPanel/page.tsx for how the gate itself works.
+ */
+export interface DocScanStatus {
+  /** False when the scan provider was unavailable and the user went through the manual-acknowledge fallback instead. */
+  scanAvailable: boolean;
+  /** "<check id> — <check label>" for every required check the user explicitly overrode (see the override control in DocScanPanel). Empty when nothing was overridden. */
+  overriddenChecks: string[];
+}
+
 export interface TravelClaimForm {
   header: TravelClaimHeader;
   trips: Trip[];
   signature: Signature | null;
   documents: ClaimDocuments;
+  /** Both absent when the Travel Cover/Report aren't required for this team/location (see coverReportRequired) -- they're gated together, so either both are present or neither is. */
+  coverScanStatus?: DocScanStatus;
+  reportScanStatus?: DocScanStatus;
 }
 
 export function makeEmptyClaimHeader(): TravelClaimHeader {

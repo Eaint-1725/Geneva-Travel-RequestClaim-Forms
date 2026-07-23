@@ -6,9 +6,9 @@ import type {
 } from "@azure-rest/ai-document-intelligence";
 import { nearestLabel } from "./geometry";
 import { fuzzyContains } from "./fuzzy-match";
-import type { CoverCheck, CoverScanProvider, CoverScanResult } from "./types";
+import type { DocCheck, DocScanProvider, DocScanResult, ReportScanContext } from "./types";
 
-// Azure Document Intelligence (Layout model, prebuilt-layout) implementation of CoverScanProvider.
+// Azure Document Intelligence (Layout model, prebuilt-layout) implementation of DocScanProvider.
 // KNOWN LIMITATION, stated up front: none of the extraction rules below have been validated
 // against a real Azure resource or a real sample Travel Cover PDF -- they're built from the
 // form's textual description and the SDK's documented response shape. Every tunable (allow-lists,
@@ -53,7 +53,7 @@ function detectWhoBranding(content: string): string | null {
   return null;
 }
 
-function checkSectionIiiPresent(content: string): CoverCheck {
+function checkSectionIiiPresent(content: string): DocCheck {
   const present = content.toLowerCase().includes("section iii");
   return {
     id: "section_iii_present",
@@ -66,7 +66,7 @@ function checkSectionIiiPresent(content: string): CoverCheck {
   };
 }
 
-function checkWhoTeam(content: string): CoverCheck {
+function checkWhoTeam(content: string): DocCheck {
   const present = content.toLowerCase().includes("who team");
   return {
     id: "who_team",
@@ -79,11 +79,11 @@ function checkWhoTeam(content: string): CoverCheck {
 
 // Name presence and name format are checked as two distinct facts -- "missing entirely" reads
 // very differently to a user than "present but not in the expected format".
-function checkName(content: string): CoverCheck[] {
+function checkName(content: string): DocCheck[] {
   const formatMatch = NAME_FORMAT_PATTERN.test(content);
   const looseMatch = formatMatch || LOOSE_NAME_PATTERN.test(content);
 
-  const presence: CoverCheck = {
+  const presence: DocCheck = {
     id: "name_presence",
     label: "Traveller name",
     severity: "warn",
@@ -92,7 +92,7 @@ function checkName(content: string): CoverCheck[] {
       ? "Traveller name found."
       : "Couldn't find the traveller's name — please check it's on the form.",
   };
-  const format: CoverCheck = {
+  const format: DocCheck = {
     id: "name_format",
     label: "Name format (Name, Position (Duty Station))",
     severity: "warn",
@@ -108,7 +108,7 @@ function checkName(content: string): CoverCheck[] {
 
 // Handles BOTH a typed/handwritten Yes/No answer near the label AND a ticked checkbox
 // (selectionMarks) near the label -- the form may use either variant.
-function checkYesNoField(page: DocumentPageOutput | undefined, labelWord: string, id: string, label: string): CoverCheck {
+function checkYesNoField(page: DocumentPageOutput | undefined, labelWord: string, id: string, label: string): DocCheck {
   const lines = page?.lines ?? [];
   const marks = page?.selectionMarks ?? [];
   const labelLines = lines.filter((l) => l.content.toLowerCase().includes(labelWord));
@@ -147,7 +147,7 @@ function checkYesNoField(page: DocumentPageOutput | undefined, labelWord: string
   };
 }
 
-function checkItinerary(tables: DocumentTableOutput[] | undefined): CoverCheck {
+function checkItinerary(tables: DocumentTableOutput[] | undefined): DocCheck {
   const candidate = (tables ?? []).find((t) => t.columnCount >= 3 && t.rowCount >= 2);
   if (!candidate) {
     return {
@@ -179,7 +179,7 @@ function checkItinerary(tables: DocumentTableOutput[] | undefined): CoverCheck {
   };
 }
 
-function checkDutyReport(content: string): CoverCheck {
+function checkDutyReport(content: string): DocCheck {
   const idx = content.toLowerCase().indexOf("duty travel report");
   const window = idx === -1 ? "" : content.slice(idx, idx + 80);
   const answered = /\b(yes|no)\b/i.test(window);
@@ -200,7 +200,7 @@ function checkDutyReport(content: string): CoverCheck {
 // signature that produces no OCRable content at all. Kept at severity:"warn" for exactly that
 // reason. The date sub-check is a plain date-pattern presence search, not approximate in the same
 // way.
-function checkSignatureAndDate(page: DocumentPageOutput | undefined, content: string): CoverCheck[] {
+function checkSignatureAndDate(page: DocumentPageOutput | undefined, content: string): DocCheck[] {
   const lines = page?.lines ?? [];
   const signatureLabel = lines.find((l) => /ssa holder|signature/i.test(l.content));
 
@@ -235,7 +235,7 @@ function checkSignatureAndDate(page: DocumentPageOutput | undefined, content: st
   ];
 }
 
-function checkTotalAmount(content: string): CoverCheck {
+function checkTotalAmount(content: string): DocCheck {
   const found = /total[^a-z0-9]{0,25}mmk[^a-z0-9]{0,10}[\d,]{2,}/i.test(content)
     || /\bmmk\b[^a-z0-9]{0,10}[\d,]{3,}/i.test(content);
   return {
@@ -253,7 +253,7 @@ function checkTotalAmount(content: string): CoverCheck {
 // form (e.g. the traveller's own name) can't produce a false match here. Runs even when Section
 // III is missing -- that's reported by checkSectionIiiPresent (a block check); these report "not
 // found" as expected in that case, not a duplicate of the block failure.
-function checkSectionIiiNames(content: string): CoverCheck[] {
+function checkSectionIiiNames(content: string): DocCheck[] {
   const idx = content.toLowerCase().indexOf("section iii");
   const region = idx === -1 ? "" : content.slice(idx);
   const supervisorFound = region !== "" && fuzzyContains(region, SUPERVISOR_NAME, NAME_FUZZY_TOLERANCE_RATIO);
@@ -281,13 +281,13 @@ function checkSectionIiiNames(content: string): CoverCheck[] {
   ];
 }
 
-export class AzureCoverScanProvider implements CoverScanProvider {
+export class AzureDocScanProvider implements DocScanProvider {
   constructor(
     private readonly endpoint: string,
     private readonly apiKey: string,
   ) {}
 
-  async scanTravelCover(pdf: Buffer): Promise<CoverScanResult> {
+  async scanTravelCover(pdf: Buffer): Promise<DocScanResult> {
     const client = DocumentIntelligence(this.endpoint, { key: this.apiKey });
 
     // This form is always a PDF (the route only accepts pdfOnly uploads for Travel Cover), so the
@@ -316,7 +316,7 @@ export class AzureCoverScanProvider implements CoverScanProvider {
     const page = pages[0];
 
     const whoBrandingPhrase = detectWhoBranding(content);
-    const checks: CoverCheck[] = [
+    const checks: DocCheck[] = [
       {
         id: "who_branding",
         label: "No WHO/Geneva branding",
@@ -345,6 +345,27 @@ export class AzureCoverScanProvider implements CoverScanProvider {
       hasBlockingFailure,
       scanAvailable: true,
       rawTextFound: whoBrandingPhrase ?? undefined,
+    };
+  }
+
+  // Travel Report scanning isn't implemented against Azure -- it's a secondary/inactive backend
+  // (OpenAI wins whenever OPENAI_API_KEY is set, see ./index), and none of this file's extraction
+  // rules are validated against a live resource even for the cover. Rather than ship unverified
+  // heuristics for a path that isn't in use, this always reports unavailable so the client falls
+  // back to the same manual-verify path a real provider outage would trigger.
+  async scanTravelReport(_pdf: Buffer, _contentType: string, _context: ReportScanContext): Promise<DocScanResult> {
+    return {
+      checks: [
+        {
+          id: "scan_unavailable",
+          label: "Automated scan",
+          status: "warn",
+          severity: "warn",
+          message: "Automated scan unavailable — please verify the report manually.",
+        },
+      ],
+      hasBlockingFailure: false,
+      scanAvailable: false,
     };
   }
 }
