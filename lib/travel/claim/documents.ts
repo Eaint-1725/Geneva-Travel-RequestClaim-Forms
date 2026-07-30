@@ -27,8 +27,11 @@ export const OPTIONAL_DOC_KEYS: OptionalDocKey[] = [
   "justification", "approvedEmail", "airTicket", "declaration", "certificate",
 ];
 
-/** Stable checklist order -- drives both the attach/link split and the email's document listing. */
-export const ALL_DOC_KEYS: DocKey[] = ["travelRequest", "travelCover", "travelReport", "voucher", ...OPTIONAL_DOC_KEYS];
+/** Stable checklist order -- drives both the attach/link split and the email's document listing.
+ * HR wants a predictable email order (Cover, [Excel], Request, Voucher(s), Report, then the
+ * optional checkbox docs) -- see app/api/travel/claim/submit/route.ts for where the generated
+ * Excel gets spliced in as "Travel Claim", between Travel Cover and Travel Request. */
+export const ALL_DOC_KEYS: DocKey[] = ["travelCover", "travelRequest", "voucher", "travelReport", ...OPTIONAL_DOC_KEYS];
 
 export const DOC_LABELS: Record<DocKey, string> = {
   travelRequest: "Travel Request",

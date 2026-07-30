@@ -101,7 +101,7 @@ export default function DocScanPanel({
                 <span className={`mt-0.5 shrink-0 rounded px-1 py-0.5 text-[10px] font-medium ${BADGE_CLASSES[color]}`}>
                   {BADGE_ICON[color]}
                 </span>
-                <span className="text-gray-700">
+                <span className="max-lg:min-w-0 max-lg:flex-1 text-gray-700">
                   <span className="font-medium">{c.label}: </span>
                   {overridden ? "You confirmed this is present on your form." : c.message}
                 </span>
@@ -111,7 +111,7 @@ export default function DocScanPanel({
                 <button
                   type="button"
                   onClick={() => setConfirmingId(c.id)}
-                  className="ml-6 mt-1 text-[11px] text-primary underline hover:no-underline"
+                  className="ml-6 mt-1 text-[11px] text-primary underline hover:no-underline max-lg:inline-flex max-lg:min-h-[44px] max-lg:items-center max-lg:rounded max-lg:border max-lg:border-primary/40 max-lg:bg-primary-light/20 max-lg:px-2 max-lg:py-1"
                   data-testid={`${idPrefix}-override-${c.id}`}
                 >
                   The scan got this wrong — this is on my form
@@ -127,12 +127,16 @@ export default function DocScanPanel({
                       onOverrideCheck(c.id);
                       setConfirmingId(null);
                     }}
-                    className="rounded bg-primary px-2 py-0.5 font-medium text-white hover:opacity-90"
+                    className="rounded bg-primary px-3 py-2 font-medium text-white hover:opacity-90 max-lg:min-h-[44px] lg:px-2 lg:py-0.5"
                     data-testid={`${idPrefix}-override-confirm-${c.id}`}
                   >
                     Confirm override
                   </button>
-                  <button type="button" onClick={() => setConfirmingId(null)} className="text-gray-500 underline hover:no-underline">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingId(null)}
+                    className="text-gray-500 underline hover:no-underline max-lg:inline-flex max-lg:min-h-[44px] max-lg:items-center max-lg:px-2"
+                  >
                     Cancel
                   </button>
                 </div>
@@ -143,12 +147,12 @@ export default function DocScanPanel({
       </ul>
 
       {scanUnavailable && (
-        <label className="mt-2 flex items-start gap-2 text-xs text-gray-700">
+        <label className="mt-2 flex items-start gap-2 text-xs text-gray-700 max-lg:min-h-[44px] max-lg:py-1">
           <input
             type="checkbox"
             checked={manualAck}
             onChange={(e) => onManualAckChange(e.target.checked)}
-            className="mt-0.5"
+            className="mt-0.5 max-lg:h-5 max-lg:w-5"
             data-testid={`${idPrefix}-ack`}
           />
           Automated scan unavailable — I&apos;ve verified the {docLabel} manually and confirm it is complete.

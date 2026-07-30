@@ -42,6 +42,16 @@ function isInvalidMeta(meta: unknown): boolean {
   return false;
 }
 
+/** Where "Travel Claim" (the generated Excel, not a DocKey -- it's never uploaded) belongs among
+ * `attached`'s already-ordered entries: right after any Travel Cover entry, right before Travel
+ * Request. Falls back to the front when there's no Travel Cover among the attached docs (e.g.
+ * HIV in-town, or the rare case a huge Cover got linked instead), so the position is always
+ * defined. Shared by the body listing and the real Graph attachment order so they can never drift. */
+function excelInsertIndex(attached: DocToSend[]): number {
+  const idx = attached.findIndex((d) => d.key !== "travelCover");
+  return idx === -1 ? attached.length : idx;
+}
+
 function buildEmailSubject(form: TravelClaimForm, meta: SubmissionMeta): string {
   const base = `${form.header.team} - ${form.header.name} - TC - ${formatMonthLong(form.header.month)}`;
   return meta.type === "updated" ? `[UPDATED] ${base}` : base;
@@ -79,6 +89,7 @@ function buildEmailBody(
   form: TravelClaimForm,
   meta: SubmissionMeta,
   grandTotalMmk: number,
+  excelFileName: string,
   attached: DocToSend[],
   linked: DocToSend[],
 ): string {
@@ -95,10 +106,16 @@ function buildEmailBody(
     "",
     `The completed travel claim Excel is attached. Replies to this email go directly to the traveller (${form.header.email}).`,
   ];
-  if (attached.length > 0) {
-    lines.push("", "Attached documents:");
-    for (const d of attached) lines.push(`- ${d.label}: ${d.file.name}`);
-  }
+
+  // Excel isn't a DocKey (never uploaded) -- spliced into the same position it gets spliced
+  // into the real attachment array below, so the labelled order here always matches what's
+  // actually attached to the email.
+  lines.push("", "Attached documents (in order):");
+  const insertAt = excelInsertIndex(attached);
+  attached.slice(0, insertAt).forEach((d) => lines.push(`- ${d.label}: ${d.file.name}`));
+  lines.push(`- Travel Claim: ${excelFileName}`);
+  attached.slice(insertAt).forEach((d) => lines.push(`- ${d.label}: ${d.file.name}`));
+
   if (linked.length > 0) {
     lines.push("", "Additional documents (sent as secure links -- combined size was over the email attachment limit):");
     for (const d of linked) lines.push(`- ${d.label}: ${d.file.name} — ${d.file.url}`);
@@ -151,8 +168,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Excel is always attached -- it's the primary deliverable, not optional. Everything else
   // attaches while the running total (Excel + files already queued) stays within the 20MB
   // email budget; once a file wouldn't fit, that file and everything after it (in checklist
-  // order) is linked instead. This keeps the core documents (Travel Request/Cover/Report/
-  // Voucher) attached ahead of the optional checkbox items whenever there's a choice to make.
+  // order) is linked instead. This keeps the core documents (Cover/Request/Voucher/Report)
+  // attached ahead of the optional checkbox items whenever there's a choice to make.
   let runningBytes = excelBuffer.byteLength;
   const attached: DocToSend[] = [];
   const linked: DocToSend[] = [];
@@ -183,7 +200,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         };
       }),
     );
-    attachments = [{ name: excelFileName, contentType: XLSX_CONTENT_TYPE, content: excelBuffer }, ...fetchedDocs];
+    // Same position as the body's "Attached documents" listing -- right after Travel Cover,
+    // right before Travel Request -- so the two never drift apart.
+    const excelAttachment: GraphEmailAttachmentBuffer = { name: excelFileName, contentType: XLSX_CONTENT_TYPE, content: excelBuffer };
+    const insertAt = excelInsertIndex(attached);
+    attachments = [...fetchedDocs.slice(0, insertAt), excelAttachment, ...fetchedDocs.slice(insertAt)];
     console.log(`[claim-submit] step=fetchBlobs ok count=${fetchedDocs.length}`);
   } catch (e) {
     console.error("[claim-submit] step=fetchBlobs error", e);
@@ -195,7 +216,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       to: hrRecipient,
       replyTo: form.header.email,
       subject: buildEmailSubject(form, meta),
-      bodyText: buildEmailBody(form, meta, grandTotal.totalAmountMmk, attached, linked),
+      bodyText: buildEmailBody(form, meta, grandTotal.totalAmountMmk, excelFileName, attached, linked),
       attachments,
     });
     console.log("[claim-submit] step=sendMail ok");

@@ -36,7 +36,7 @@ import ClaimTripBlock from "./ClaimTripBlock";
 import ClaimDocumentField from "./ClaimDocumentField";
 import DocScanPanel from "./DocScanPanel";
 
-const inputCls = "rounded border border-gray-300 px-2 py-1.5 text-sm";
+const inputCls = "rounded border border-gray-300 px-2 py-2.5 text-base lg:py-1.5 lg:text-sm";
 
 const EMPTY_CHECKED_DOCS: Record<OptionalDocKey, boolean> = {
   justification: false,
@@ -453,26 +453,26 @@ export default function TravelClaimPage() {
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5" data-testid="travel-claim-header-card">
         <h2 className="mb-2 text-sm font-semibold text-navy-900">Claim details</h2>
-        <div className="flex flex-wrap items-start gap-2">
-          <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-36">
+        <div className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-3 md:gap-y-3 lg:flex lg:flex-row lg:flex-wrap lg:items-start lg:gap-2">
+          <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-full lg:w-36">
             <input type="month" className={`${inputCls} w-full`} value={header.month} onChange={(e) => updateHeader("month", e.target.value)} data-testid="travel-claim-month" />
           </Field>
-          <Field label="Submission Date" error={showErrors ? errors["header.submissionDate"] : undefined} width="w-40">
+          <Field label="Submission Date" error={showErrors ? errors["header.submissionDate"] : undefined} width="w-full lg:w-40">
             <input type="date" className={`${inputCls} w-full`} value={header.submissionDate} onChange={(e) => updateHeader("submissionDate", e.target.value)} data-testid="travel-claim-submission-date" />
           </Field>
-          <Field label="Team" error={showErrors ? errors["header.team"] : undefined} width="w-32">
+          <Field label="Team" error={showErrors ? errors["header.team"] : undefined} width="w-full lg:w-32">
             <select className={`${inputCls} w-full`} value={header.team} onChange={(e) => updateHeader("team", e.target.value)} data-testid="travel-claim-team">
               <option value="">— select —</option>
               {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </Field>
-          <Field label="Name of traveller" error={showErrors ? errors["header.name"] : undefined} width="w-48">
+          <Field label="Name of traveller" error={showErrors ? errors["header.name"] : undefined} width="w-full lg:w-48">
             <input type="text" className={`${inputCls} w-full`} value={header.name} onChange={(e) => updateHeader("name", e.target.value)} data-testid="travel-claim-name" />
           </Field>
-          <Field label="Position" error={showErrors ? errors["header.position"] : undefined} width="w-56">
+          <Field label="Position" error={showErrors ? errors["header.position"] : undefined} width="w-full lg:w-56">
             <input type="text" className={`${inputCls} w-full`} value={header.position} onChange={(e) => updateHeader("position", e.target.value)} data-testid="travel-claim-position" />
           </Field>
-          <Field label="Duty Station" error={showErrors ? errors["header.dutyStation"] : undefined} width="w-56">
+          <Field label="Duty Station" error={showErrors ? errors["header.dutyStation"] : undefined} width="w-full lg:w-56">
             <input type="text" className={`${inputCls} w-full`} value={header.dutyStation} onChange={(e) => updateHeader("dutyStation", e.target.value)} data-testid="travel-claim-duty-station" />
           </Field>
           {header.team === "HIV" && (
@@ -481,7 +481,7 @@ export default function TravelClaimPage() {
               error={showErrors ? errors["header.travelArea"] : undefined}
               hint="Out-of-town travel requires the Travel Cover and Travel Report."
               hintTestId="travel-claim-travel-area-hint"
-              width="w-72"
+              width="w-full lg:w-72"
             >
               <select
                 className={`${inputCls} w-full`}
@@ -546,13 +546,14 @@ export default function TravelClaimPage() {
             onRemove={() => removeTrip(trip.id)}
             canRemove={trips.length > 1}
             errors={showErrors ? errors : {}}
+            submissionDate={header.submissionDate}
           />
         ))}
 
         <button
           type="button"
           onClick={addTrip}
-          className="rounded border border-primary px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary-light/30"
+          className="w-full rounded border border-primary px-3 py-2.5 text-base font-medium text-primary hover:bg-primary-light/30 lg:w-auto lg:py-1.5 lg:text-sm"
           data-testid="travel-claim-add-trip"
         >
           Add trip
@@ -600,7 +601,7 @@ export default function TravelClaimPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <ClaimDocumentField
             label="Travel Request (PDF, required)"
             testid="travel-claim-doc-travelRequest"
@@ -708,7 +709,7 @@ export default function TravelClaimPage() {
         {showErrors && errors["signature"] && <p className="mt-1 text-xs text-red-600" data-testid="travel-claim-signature-error">{errors["signature"]}</p>}
 
         <div className="mt-3">
-          <Field label="Your email" error={showErrors ? errors["header.email"] : undefined} width="w-64">
+          <Field label="Your email" error={showErrors ? errors["header.email"] : undefined} width="w-full lg:w-64">
             <input
               type="email"
               className={`${inputCls} w-full`}
@@ -724,17 +725,18 @@ export default function TravelClaimPage() {
       </div>
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
           <Button
             type="button"
             variant="primary"
             onClick={handleSubmitClick}
             disabled={busy || !isValid || uploadingFields.size > 0 || coverScanning || reportScanning || docsGateActive}
+            className="max-lg:min-h-[44px] max-lg:w-full"
             data-testid="travel-claim-submit-btn"
           >
             {busy ? "Sending…" : uploadingFields.size > 0 ? "Uploading…" : "Submit travel claim"}
           </Button>
-          <Button type="button" variant="secondary" onClick={handleClear} disabled={busy} data-testid="travel-claim-clear-btn">
+          <Button type="button" variant="secondary" onClick={handleClear} disabled={busy} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-claim-clear-btn">
             Clear
           </Button>
         </div>

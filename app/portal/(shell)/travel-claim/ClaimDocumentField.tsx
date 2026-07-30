@@ -153,6 +153,7 @@ export default function ClaimDocumentField({
         multiple={multiple}
         disabled={disabled}
         compact
+        className="max-lg:min-h-[44px]"
         testid={`${testid}-dropzone`}
       >
         <span className="text-gray-500">{multiple ? "Drop files here or click to browse" : "Drop a file here or click to browse"}</span>
@@ -174,12 +175,18 @@ export default function ClaimDocumentField({
       {files.length > 0 && (
         <ul className="mt-1 space-y-0.5">
           {files.map((f) => (
-            <li key={f.url} className="flex items-center justify-between rounded bg-green-50 px-2 py-1 text-xs text-gray-700" data-testid={`${testid}-file`}>
-              <span className="truncate">
+            <li key={f.url} className="flex flex-wrap items-center justify-between gap-1 rounded bg-green-50 px-2 py-1 text-xs text-gray-700 lg:flex-nowrap" data-testid={`${testid}-file`}>
+              <span className="max-lg:min-w-0 lg:truncate">
                 <span className="mr-1.5 rounded bg-green-100 px-1 py-0.5 text-[10px] font-medium text-green-800">✓ Uploaded</span>
                 {f.name} <span className="text-gray-400">({formatBytes(f.size)})</span>
               </span>
-              <button type="button" onClick={() => removeFile(f.url)} disabled={disabled} className="ml-2 shrink-0 text-gray-400 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`${testid}-remove`}>
+              <button
+                type="button"
+                onClick={() => removeFile(f.url)}
+                disabled={disabled}
+                className="ml-2 shrink-0 rounded border border-gray-200 px-2 py-1.5 text-gray-500 hover:border-red-300 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 lg:rounded-none lg:border-0 lg:p-0 lg:text-gray-400"
+                data-testid={`${testid}-remove`}
+              >
                 remove
               </button>
             </li>

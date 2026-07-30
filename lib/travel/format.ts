@@ -18,3 +18,11 @@ export function formatMonthLong(month: string): string {
   const name = MONTH_NAMES[Number(match[2]) - 1];
   return name ? `${name} ${match[1]}` : month;
 }
+
+/** "2026-07-30" -> "30 Jul 2026"; falls back to the raw value if it isn't YYYY-MM-DD. */
+export function formatDateLong(date: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) return date;
+  const name = MONTH_NAMES[Number(match[2]) - 1];
+  return name ? `${Number(match[3])} ${name.slice(0, 3)} ${match[1]}` : date;
+}

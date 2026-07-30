@@ -46,7 +46,7 @@ export default function TravelClaimSuccessPage() {
           <Button
             type="button"
             variant="secondary"
-            className="mb-3 w-full"
+            className="mb-3 w-full max-lg:min-h-[44px]"
             onClick={() => downloadClaimExcel(excel)}
             data-testid="travel-claim-success-download"
           >
@@ -57,6 +57,7 @@ export default function TravelClaimSuccessPage() {
           type="button"
           variant="primary"
           onClick={() => router.push("/portal/travel-claim")}
+          className="max-lg:min-h-[44px] max-lg:w-full"
           data-testid="travel-claim-success-back"
         >
           Submit another claim
