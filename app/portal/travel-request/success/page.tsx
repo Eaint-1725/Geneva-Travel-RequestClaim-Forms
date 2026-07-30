@@ -27,6 +27,7 @@ export default function TravelRequestSuccessPage() {
           type="button"
           variant="primary"
           onClick={() => router.push("/portal/travel-request")}
+          className="max-lg:min-h-[44px] max-lg:w-full"
           data-testid="travel-request-success-back"
         >
           Submit another request
