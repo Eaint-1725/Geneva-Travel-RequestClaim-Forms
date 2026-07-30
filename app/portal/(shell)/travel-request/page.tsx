@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 import { calcGrandTotal } from "@/lib/travel/calc";
+import { REQUEST_EXCEL_STORAGE_KEY, downloadRequestExcel, type StoredRequestExcel } from "@/lib/travel/excel-download";
 import { formatMmk, formatUsd } from "@/lib/travel/format";
 import { TEAMS } from "@/lib/travel/rates";
 import { makeEmptyTrip, type Signature, type SubmissionMeta, type Trip, type TravelRequestForm } from "@/lib/travel/types";
@@ -149,27 +150,34 @@ export default function TravelRequestPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ form, meta: submitMeta }),
       });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        excelFileName?: string;
+        excelBase64?: string;
+      };
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? "Couldn't email HR — please try again");
       }
-      const blob = await res.blob();
-      const disposition = res.headers.get("Content-Disposition") ?? "";
-      const nameMatch = /filename="([^"]+)"/.exec(disposition);
-      const safeName = (header.name || "travel-request").replace(/[^a-z0-9]+/gi, "-");
-      const fileName = nameMatch?.[1] ?? `Travel Request - ${safeName} - ${header.month || "draft"}.xlsx`;
-
       setDialogOpen(false);
-      router.push("/portal/travel-request/success");
 
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      // Best-effort: the send already succeeded, so a blocked/failed download must never surface
+      // as an error here -- the success page's own fallback link (fed by the same stashed data)
+      // covers the case where the automatic download didn't go through.
+      if (body.excelFileName && body.excelBase64) {
+        const excel: StoredRequestExcel = { fileName: body.excelFileName, base64: body.excelBase64 };
+        try {
+          sessionStorage.setItem(REQUEST_EXCEL_STORAGE_KEY, JSON.stringify(excel));
+        } catch {
+          // Storage full/unavailable (e.g. strict private browsing) -- only the fallback link is lost.
+        }
+        try {
+          downloadRequestExcel(excel);
+        } catch {
+          // Blocked by the browser -- the success page's fallback link is the recovery path.
+        }
+      }
+
+      router.push("/portal/travel-request/success");
     } catch (e) {
       setDialogOpen(false);
       setApiError(e instanceof Error ? e.message : "Couldn't email HR — please try again");
@@ -199,7 +207,7 @@ export default function TravelRequestPage() {
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5" data-testid="travel-header-card">
         <h2 className="mb-2 text-sm font-semibold text-navy-900">Request details</h2>
-        <div className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-3 md:gap-y-3 lg:flex lg:flex-row lg:flex-wrap lg:items-end lg:gap-2">
+        <div className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-3 md:gap-y-3 lg:flex lg:flex-row lg:flex-wrap lg:items-start lg:gap-2">
           <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-full lg:w-36">
             <input type="month" className={`${inputCls} w-full`} value={header.month} onChange={(e) => updateHeader("month", e.target.value)} data-testid="travel-month" />
           </Field>
