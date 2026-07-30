@@ -1,12 +1,30 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
+import { CLAIM_EXCEL_STORAGE_KEY, downloadClaimExcel, type StoredClaimExcel } from "@/lib/travel/claim/excel-download";
 
 // Deliberately outside app/portal/(shell) -- this route must render full-screen with no
 // sidebar/org chrome, unlike every other portal page. Mirrors the Travel Request success page.
 export default function TravelClaimSuccessPage() {
   const router = useRouter();
+  const [excel, setExcel] = useState<StoredClaimExcel | null>(null);
+
+  // The submit page stashes the same Excel it just tried to auto-download here, purely as a
+  // fallback for browsers that silently block/drop the automatic download -- read once and clear
+  // immediately, so a stale copy from an earlier submission can never resurface on a later,
+  // unrelated visit to this route (e.g. the user navigating back here directly).
+  useEffect(() => {
+    const raw = sessionStorage.getItem(CLAIM_EXCEL_STORAGE_KEY);
+    if (!raw) return;
+    sessionStorage.removeItem(CLAIM_EXCEL_STORAGE_KEY);
+    try {
+      setExcel(JSON.parse(raw) as StoredClaimExcel);
+    } catch {
+      // Malformed stash -- no fallback link, nothing else affected.
+    }
+  }, []);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4" data-testid="travel-claim-success-page">
@@ -18,12 +36,23 @@ export default function TravelClaimSuccessPage() {
         </div>
         <h1 className="mb-2 text-lg font-semibold text-navy-900">Your submission is successful!</h1>
         <p className="mb-4 text-sm text-gray-600">
-          Your travel claim, its Excel summary, and your supporting documents have been emailed to HR.
+          Your travel claim has been emailed to HR, and a copy of the Excel file has been downloaded to your device.
         </p>
         <p className="mb-6 rounded bg-success-light px-3 py-2 text-xs text-success-text">
           HR will follow up using the email address you provided. Any documents that were too large to attach directly were included
           as secure links instead.
         </p>
+        {excel && (
+          <Button
+            type="button"
+            variant="secondary"
+            className="mb-3 w-full"
+            onClick={() => downloadClaimExcel(excel)}
+            data-testid="travel-claim-success-download"
+          >
+            Download the Excel
+          </Button>
+        )}
         <Button
           type="button"
           variant="primary"

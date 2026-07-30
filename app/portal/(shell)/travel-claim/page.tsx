@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 import Field from "@/components/travel/Field";
 import SignaturePad from "@/components/travel/SignaturePad";
+import SubmitNoteDialog, { isSubmitNoteValid } from "@/components/travel/SubmitNoteDialog";
 import { calcClaimGrandTotal } from "@/lib/travel/claim/calc";
+import { CLAIM_EXCEL_STORAGE_KEY, downloadClaimExcel, type StoredClaimExcel } from "@/lib/travel/claim/excel-download";
 import { resolveRowRate } from "@/lib/travel/claim/rate";
 import type { DocScanResult } from "@/lib/travel/claim/document-scan";
 import {
@@ -28,7 +30,7 @@ import {
 } from "@/lib/travel/claim/documents";
 import { TEAMS } from "@/lib/travel/rates";
 import { formatMmk, formatUsd } from "@/lib/travel/format";
-import { makeEmptyTrip, type Row, type Signature, type Trip } from "@/lib/travel/types";
+import { makeEmptyTrip, type Row, type Signature, type SubmissionMeta, type Trip } from "@/lib/travel/types";
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
 import ClaimTripBlock from "./ClaimTripBlock";
 import ClaimDocumentField from "./ClaimDocumentField";
@@ -43,6 +45,10 @@ const EMPTY_CHECKED_DOCS: Record<OptionalDocKey, boolean> = {
   declaration: false,
   certificate: false,
 };
+
+function makeEmptySubmitMeta(): SubmissionMeta {
+  return { type: "new", note: "" };
+}
 
 export default function TravelClaimPage() {
   const router = useRouter();
@@ -88,6 +94,9 @@ export default function TravelClaimPage() {
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [submitMeta, setSubmitMeta] = useState<SubmissionMeta>(makeEmptySubmitMeta());
 
   const [unRates, setUnRates] = useState<UnRate[]>([]);
   const [rateError, setRateError] = useState<string | null>(null);
@@ -347,10 +356,17 @@ export default function TravelClaimPage() {
     setNotice(null);
   }
 
-  async function handleSubmit() {
+  function handleSubmitClick() {
     setApiError(null);
     setNotice(null);
-    if (!isValid || uploadingFields.size > 0 || docsGateActive) return;
+    // Keep the existing validation + scan-gating checks first -- the dialog only opens once the
+    // form AND the document scans are both clear; it must never become a way to bypass either.
+    if (!isValid || uploadingFields.size > 0 || docsGateActive || coverScanning || reportScanning) return;
+    setDialogOpen(true);
+  }
+
+  async function handleConfirmSend() {
+    if (!isSubmitNoteValid(submitMeta)) return;
 
     // Attached to the submission payload for HR visibility only (see DocScanStatus) -- never
     // consulted by validation itself, which is why this is built fresh here rather than kept in
@@ -377,18 +393,46 @@ export default function TravelClaimPage() {
       const res = await fetch("/api/travel/claim/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, coverScanStatus, reportScanStatus }),
+        body: JSON.stringify({ form: { ...form, coverScanStatus, reportScanStatus }, meta: submitMeta }),
       });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        excelFileName?: string;
+        excelBase64?: string;
+      };
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? "Couldn't email HR — please try again");
       }
+      setDialogOpen(false);
+
+      // Best-effort: the send already succeeded, so a blocked/failed download must never surface
+      // as an error here -- the success page's own fallback link (fed by the same stashed data)
+      // covers the case where the automatic download didn't go through.
+      if (body.excelFileName && body.excelBase64) {
+        const excel: StoredClaimExcel = { fileName: body.excelFileName, base64: body.excelBase64 };
+        try {
+          sessionStorage.setItem(CLAIM_EXCEL_STORAGE_KEY, JSON.stringify(excel));
+        } catch {
+          // Storage full/unavailable (e.g. strict private browsing) -- only the fallback link is lost.
+        }
+        try {
+          downloadClaimExcel(excel);
+        } catch {
+          // Blocked by the browser -- the success page's fallback link is the recovery path.
+        }
+      }
+
       router.push("/portal/travel-claim/success");
     } catch (e) {
+      setDialogOpen(false);
       setApiError(e instanceof Error ? e.message : "Couldn't email HR — please try again");
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleCancelDialog() {
+    setDialogOpen(false);
   }
 
   return (
@@ -409,7 +453,7 @@ export default function TravelClaimPage() {
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5" data-testid="travel-claim-header-card">
         <h2 className="mb-2 text-sm font-semibold text-navy-900">Claim details</h2>
-        <div className="flex flex-wrap items-end gap-2">
+        <div className="flex flex-wrap items-start gap-2">
           <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-36">
             <input type="month" className={`${inputCls} w-full`} value={header.month} onChange={(e) => updateHeader("month", e.target.value)} data-testid="travel-claim-month" />
           </Field>
@@ -432,7 +476,13 @@ export default function TravelClaimPage() {
             <input type="text" className={`${inputCls} w-full`} value={header.dutyStation} onChange={(e) => updateHeader("dutyStation", e.target.value)} data-testid="travel-claim-duty-station" />
           </Field>
           {header.team === "HIV" && (
-            <Field label="Travel area" error={showErrors ? errors["header.travelArea"] : undefined} width="w-56">
+            <Field
+              label="Travel area"
+              error={showErrors ? errors["header.travelArea"] : undefined}
+              hint="Out-of-town travel requires the Travel Cover and Travel Report."
+              hintTestId="travel-claim-travel-area-hint"
+              width="w-72"
+            >
               <select
                 className={`${inputCls} w-full`}
                 value={header.travelArea}
@@ -446,12 +496,6 @@ export default function TravelClaimPage() {
             </Field>
           )}
         </div>
-
-        {header.team === "HIV" && (
-          <p className="mt-0.5 text-[11px] text-gray-500" data-testid="travel-claim-travel-area-hint">
-            Out-of-town travel requires the Travel Cover and Travel Report.
-          </p>
-        )}
 
         <p className="mt-3 text-[11px] text-gray-500" data-testid="travel-claim-rate-status">
           {rateError && unRates.length === 0 ? rateError : activeRate ? formatRateCaption(activeRate) : "Loading UN rate history…"}{" "}
@@ -684,7 +728,7 @@ export default function TravelClaimPage() {
           <Button
             type="button"
             variant="primary"
-            onClick={() => void handleSubmit()}
+            onClick={handleSubmitClick}
             disabled={busy || !isValid || uploadingFields.size > 0 || coverScanning || reportScanning || docsGateActive}
             data-testid="travel-claim-submit-btn"
           >
@@ -703,6 +747,16 @@ export default function TravelClaimPage() {
           <p className="mt-1 text-xs text-red-600">The Travel Cover/Report has a blocking issue above that must be resolved (or overridden) before submitting.</p>
         )}
       </div>
+
+      <SubmitNoteDialog
+        open={dialogOpen}
+        meta={submitMeta}
+        onChange={setSubmitMeta}
+        onCancel={handleCancelDialog}
+        onConfirm={() => void handleConfirmSend()}
+        busy={busy}
+        kind="claim"
+      />
     </div>
   );
 }

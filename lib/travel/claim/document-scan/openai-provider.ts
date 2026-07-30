@@ -44,7 +44,9 @@ globalThis.ImageData ??= ImageData as unknown as typeof globalThis.ImageData;
 // LLM can attest to here (it can't verify a signature is genuine, and can conflate a printed label
 // or a nearby date with an actual mark in the box). So the model is never trusted to self-report
 // pass/fail for these -- instead it reports raw observations (signaturePresent: is there ink
-// INSIDE the box; dateNearSignature: is a date present beside it, cover only), and OUR code
+// INSIDE the box; dateNearSignature: is a date present beside it, cover's ssa_signature only --
+// on the report, tu_signature repurposes this same boolean to mean "was the box itself located
+// under either of its known labels", since a date is never relevant there), and OUR code
 // deterministically derives status + a fixed message from those. The model's own `status`/
 // `message` for these check ids are ignored entirely. The Travel Report's tu_signature rule is
 // additionally team-conditional (only blocks for EPI) -- that decision is made entirely in our
@@ -406,6 +408,8 @@ const REPORT_CHECK_LABELS: Record<ReportCheckId, string> = {
 const TU_SIGNATURE_TEAM = "EPI";
 const TU_SIGNATURE_PASS_MESSAGE = "TU's Clearance signature present.";
 const TU_SIGNATURE_MISSING_MESSAGE = "TU's Clearance signature is MISSING (required for EPI).";
+const TU_SIGNATURE_BOX_NOT_FOUND_MESSAGE =
+  "Couldn't locate the TU's Clearance / Technical Unit box on this page (required for EPI) -- if the report is correctly signed, override this check.";
 const TU_SIGNATURE_NOT_REQUIRED_MESSAGE = "Not required for this team.";
 const TU_SIGNATURE_UNKNOWN_TEAM_MESSAGE =
   "Team not detected — can't confirm whether TU's Clearance is required. Select your Team above, then re-upload the report.";
@@ -414,7 +418,7 @@ const REPORT_SYSTEM_PROMPT = `You are validating a single, fixed one-page "SUMMA
 
 This is a scanned form. For every check, the data that matters is the VALUE filled in BESIDE or AFTER the labelled field -- not the printed label itself. A label being present on the form (e.g. the text "PLACE visited") is not evidence of anything; you must find and read the handwritten/typed VALUE beside or after that label. Examples: the place visited is the text written after the "PLACE visited" label, not the label itself; the submitter is the name written after "Submitted by", not the label; a signature is ink actually INSIDE the "TU's Clearance" box, not the label itself. Do NOT report a field as present just because its label exists on the form -- judge only by the filled-in content.
 
-Report EXACTLY these ${REPORT_CHECK_IDS.length} checks, one object per id, using these ids verbatim: ${REPORT_CHECK_IDS.join(", ")}. For every check, briefly state in your message what you actually read in the value (e.g. for place_visited, quote it, like "Read 'Nay Pyi Taw' after PLACE visited."). Every check object also carries two boolean fields, signaturePresent and dateNearSignature -- signaturePresent is ONLY meaningful for the tu_signature check (see its rule below), and dateNearSignature is unused on this form -- always report it as false. For every check id other than tu_signature just report your best honest read of signaturePresent or false if not applicable, it will be ignored.
+Report EXACTLY these ${REPORT_CHECK_IDS.length} checks, one object per id, using these ids verbatim: ${REPORT_CHECK_IDS.join(", ")}. For every check, briefly state in your message what you actually read in the value (e.g. for place_visited, quote it, like "Read 'Nay Pyi Taw' after PLACE visited."). Every check object also carries two boolean fields, signaturePresent and dateNearSignature -- both are ONLY meaningful for the tu_signature check (see its rule below): signaturePresent is whether there is ink inside the box, and dateNearSignature is repurposed for this form to mean whether you were able to locate the box itself at all (under either of its known labels), regardless of whether it's signed. For every check id other than tu_signature just report your best honest read of signaturePresent or false if not applicable, and report dateNearSignature as false -- both will be ignored for those checks.
 
 Rules per check:
 - who_geneva_branding: status "fail" ONLY if the document carries an actual WHO/Geneva logo, letterhead, or branding (e.g. a "World Health Organization" letterhead, a Geneva HQ address). Ordinary words like "WHO", "EPI", or "UNICEF" appearing in the body text are normal form content and must NEVER cause a fail here. Only real WHO/Geneva branding/letterhead counts.
@@ -422,7 +426,7 @@ Rules per check:
 - place_visited: "pass" if a value is filled in after the "PLACE visited" label, e.g. "Nay Pyi Taw" -- read the value, not the label.
 - planned_date: "pass" if a value is filled in after the "PLANNED DATE" label, e.g. "17-20 Mar 2026" -- read the value, not the label.
 - travel_date: "pass" if a value is filled in after the "TRAVEL DATE" label, e.g. "17-24 Mar 2026" -- read the value, not the label.
-- tu_signature: judge ONLY the content actually inside the "TU's Clearance" signature box, and set signaturePresent honestly -- your status/message for this specific check are ignored, only signaturePresent matters. Set it to true ONLY if there is visible handwriting/ink actually INSIDE the box -- a printed label such as "TU's Clearance:" is NOT a signature, so an empty box with only that label means signaturePresent: false.
+- tu_signature: this is ONE signature box that different versions of this form label differently -- look for it under EITHER heading "TU's Clearance" OR "Technical Unit", and treat close variants of either as the same box (e.g. "Technical Unit Clearance", "TU Clearance", "T.U. Clearance", with or without a trailing colon, matched case-insensitively). Do not treat the two labels as two separate checks -- there is only ever one such box on the page. First set dateNearSignature to true if you can locate this box at all (under any of those label variants) anywhere on the page, or false if you cannot find it under any of them. Then judge ONLY the content actually inside that box and set signaturePresent honestly: true ONLY if there is visible handwriting/ink actually INSIDE the box -- a printed label alone (e.g. "TU's Clearance:" or "Technical Unit:") is NOT a signature, so an empty box with only that label means signaturePresent: false. If you could not locate the box at all, also report signaturePresent: false. Your status/message for this specific check are ignored, only signaturePresent and dateNearSignature matter.
 
 Be honest about uncertainty: if you cannot clearly read a field, use status "warn" with a message saying you couldn't confirm it -- never guess "pass" or "fail" when the page is unclear. Do not infer a field is present from a nearby label or heading -- judge each field by what is actually filled in beside or after it. If you cannot clearly see the content, mark it "warn" with "couldn't confirm", never "pass".
 
@@ -439,7 +443,8 @@ function buildReportChecks(raw: RawModelResult, context: ReportScanContext): Doc
       isReportCheckId(entry.id) &&
       isCheckStatus(entry.status) &&
       typeof entry.message === "string" &&
-      typeof entry.signaturePresent === "boolean"
+      typeof entry.signaturePresent === "boolean" &&
+      typeof entry.dateNearSignature === "boolean"
     ) {
       byId.set(entry.id, entry);
     }
@@ -468,13 +473,17 @@ function buildReportChecks(raw: RawModelResult, context: ReportScanContext): Doc
         return { id, label: REPORT_CHECK_LABELS[id], status: "pass", severity: "block", message: TU_SIGNATURE_NOT_REQUIRED_MESSAGE };
       }
       const signed = entry?.signaturePresent ?? false;
-      return {
-        id,
-        label: REPORT_CHECK_LABELS[id],
-        status: signed ? "pass" : "fail",
-        severity: "block",
-        message: signed ? TU_SIGNATURE_PASS_MESSAGE : TU_SIGNATURE_MISSING_MESSAGE,
-      };
+      // dateNearSignature is repurposed for this check (see the prompt) to mean "was the box
+      // located at all under either of its known labels" -- an entirely missing/unparseable model
+      // entry has no such observation to trust, so it falls back to the generic MISSING message
+      // rather than claiming the box couldn't be found.
+      const boxLocated = entry ? entry.dateNearSignature : true;
+      const message = signed
+        ? TU_SIGNATURE_PASS_MESSAGE
+        : boxLocated
+          ? TU_SIGNATURE_MISSING_MESSAGE
+          : TU_SIGNATURE_BOX_NOT_FOUND_MESSAGE;
+      return { id, label: REPORT_CHECK_LABELS[id], status: signed ? "pass" : "fail", severity: "block", message };
     }
 
     const status: DocCheck["status"] = entry && isCheckStatus(entry.status) ? entry.status : "warn";

@@ -62,7 +62,9 @@ export function validateClaimForm(form: TravelClaimForm, unRates: UnRate[]): Val
   } else {
     for (const trip of trips) {
       for (const row of trip.rows) {
-        validateRow(row, trip.id, header.month, errors);
+        // "ceiling" -- see validateRow's own comment for why Claim intentionally diverges from
+        // Request's floor rule here (filed after travel, not before).
+        validateRow(row, trip.id, header.month, errors, "ceiling");
         if (row.date && !resolveRowRate(row.date, unRates)) {
           errors[rowFieldKey(trip.id, row.id, "exchangeRate")] = "No UN rate on file for this date";
         }

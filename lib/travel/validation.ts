@@ -23,12 +23,53 @@ export function rowErrors(errors: Record<string, string>, tripId: string, rowId:
   return out;
 }
 
-/** Row-level validation shared by Travel Request and Travel Claim (the row schema is identical). */
-export function validateRow(row: Row, tripId: string, month: string, errors: Record<string, string>): void {
+export type RowDateRule = "floor" | "ceiling";
+
+/**
+ * "2026-07" -> "2026-07-31" (the last calendar day of that month). Uses the day-0 rollback
+ * trick -- new Date(year, month, 0) where `month` is already the 1-indexed month number, so it
+ * addresses "day 0 of the NEXT month" (0-indexed), which rolls back to the last day of THIS
+ * month -- rather than a hand-rolled days-in-month/leap-year table. Done entirely in UTC
+ * (Date.UTC + getUTC*) so the server's local timezone can never shift the result by a day --
+ * see the zero-based-month bug this codebase has been bitten by before.
+ */
+function lastDayOfMonth(month: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) return month;
+  const year = Number(match[1]);
+  const monthNum = Number(match[2]);
+  const last = new Date(Date.UTC(year, monthNum, 0));
+  const y = last.getUTCFullYear();
+  const m = String(last.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(last.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Row-level validation shared by Travel Request and Travel Claim (the row schema is identical).
+ * The two forms deliberately use OPPOSITE Date rules against the same header Month, though:
+ * Request is filed BEFORE travel happens, so Month is a FLOOR (date must be on/after it); Claim
+ * is filed AFTER travel happened, so Month is a CEILING (date must be on/before the month's last
+ * day, no lower bound). Do not "fix" this into agreement in a future parity pass -- it's
+ * intentional. `dateRule` defaults to "floor" so Travel Request's call site is unaffected.
+ */
+export function validateRow(
+  row: Row,
+  tripId: string,
+  month: string,
+  errors: Record<string, string>,
+  dateRule: RowDateRule = "floor",
+): void {
   const key = (f: string) => rowFieldKey(tripId, row.id, f);
 
   if (!row.date) errors[key("date")] = "Date is required";
-  else if (month && row.date < `${month}-01`) errors[key("date")] = `Date must be on or after ${formatMonthLong(month)}`;
+  else if (month) {
+    if (dateRule === "floor" && row.date < `${month}-01`) {
+      errors[key("date")] = `Date must be on or after ${formatMonthLong(month)}`;
+    } else if (dateRule === "ceiling" && row.date > lastDayOfMonth(month)) {
+      errors[key("date")] = `Date must be on or before ${formatMonthLong(month)}`;
+    }
+  }
 
   if (!row.fromArea) errors[key("fromArea")] = "From (Area) is required";
   if (!row.toArea) errors[key("toArea")] = "To (Area) is required";

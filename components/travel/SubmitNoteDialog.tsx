@@ -5,15 +5,20 @@ import Button from "@/components/Button";
 
 const inputCls = "w-full rounded border border-gray-300 px-2 py-1.5 text-sm";
 
-const OPTIONS: { value: SubmissionType; label: string; hint?: string }[] = [
-  { value: "new", label: "New request" },
-  { value: "updated", label: "Updated request", hint: "I've already submitted this and need to change something" },
-];
+function optionsFor(kind: "request" | "claim"): { value: SubmissionType; label: string; hint?: string }[] {
+  return [
+    { value: "new", label: `New ${kind}` },
+    { value: "updated", label: `Updated ${kind}`, hint: "I've already submitted this and need to change something" },
+  ];
+}
 
 export function isSubmitNoteValid(meta: SubmissionMeta): boolean {
   return meta.type === "updated" ? meta.note.trim().length > 0 : true;
 }
 
+// Shared by Travel Request and Travel Claim -- the dialog copy, gating, and testids are
+// identical between the two, only the "request"/"claim" noun differs (see `kind`). Defaults to
+// "request" so Travel Request's call site doesn't need to change at all.
 export default function SubmitNoteDialog({
   open,
   meta,
@@ -21,6 +26,7 @@ export default function SubmitNoteDialog({
   onCancel,
   onConfirm,
   busy,
+  kind = "request",
 }: {
   open: boolean;
   meta: SubmissionMeta;
@@ -28,11 +34,13 @@ export default function SubmitNoteDialog({
   onCancel: () => void;
   onConfirm: () => void;
   busy: boolean;
+  kind?: "request" | "claim";
 }) {
   if (!open) return null;
 
   const noteRequired = meta.type === "updated";
   const canSend = isSubmitNoteValid(meta) && !busy;
+  const options = optionsFor(kind);
 
   return (
     <div
@@ -44,11 +52,11 @@ export default function SubmitNoteDialog({
     >
       <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-5 shadow-lg">
         <h2 className="mb-1 text-base font-semibold text-navy-900">Before we send this to HR</h2>
-        <p className="mb-3 text-sm text-gray-500">Let HR know whether this is a new request or a change to one already sent.</p>
+        <p className="mb-3 text-sm text-gray-500">Let HR know whether this is a new {kind} or a change to one already sent.</p>
 
         <fieldset className="mb-3 flex flex-col gap-2">
           <legend className="mb-0.5 block text-[11px] text-gray-500">Submission type</legend>
-          {OPTIONS.map((opt) => (
+          {options.map((opt) => (
             <label
               key={opt.value}
               className={`flex cursor-pointer items-start gap-2 rounded border px-3 py-2 text-sm ${

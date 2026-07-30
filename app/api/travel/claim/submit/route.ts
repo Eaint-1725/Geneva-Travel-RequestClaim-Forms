@@ -7,7 +7,8 @@ import { sendGraphEmailWithAttachments, type GraphEmailAttachmentBuffer } from "
 import { formatMmk, formatMonthLong } from "@/lib/travel/format";
 import { ALL_DOC_KEYS, DOC_LABELS, MAX_TOTAL_ATTACH_BYTES, type DocKey } from "@/lib/travel/claim/documents";
 import { deleteClaimUploadBlobs } from "@/lib/travel/claim/blob-cleanup";
-import type { TravelClaimForm, UploadedFile } from "@/lib/travel/claim/types";
+import type { DocScanStatus, TravelClaimForm, UploadedFile } from "@/lib/travel/claim/types";
+import { SUBMISSION_NOTE_MAX_LENGTH, type SubmissionMeta } from "@/lib/travel/types";
 
 export const runtime = "nodejs";
 // Excel build + several Blob fetches + Graph draft/attach(es)/send can run well past Vercel's
@@ -22,13 +23,67 @@ interface DocToSend {
   file: UploadedFile;
 }
 
+interface SubmitClaimRequestBody {
+  form: TravelClaimForm;
+  meta: SubmissionMeta;
+}
+
+// Duplicated rather than imported from app/api/travel/submit/route.ts -- same reasoning as the
+// EMAIL_RE duplication in lib/travel/claim/validation.ts: exporting this purely to share it isn't
+// worth touching the Travel Request route (see the claim's conflict-avoidance rules).
+/** True for anything but a well-formed { type, note } -- callers must have already checked
+ * the "updated ⇒ non-empty note" rule client-side; this only guards shape/length/enum. */
+function isInvalidMeta(meta: unknown): boolean {
+  if (typeof meta !== "object" || meta === null) return true;
+  const m = meta as Record<string, unknown>;
+  if (m.type !== "new" && m.type !== "updated") return true;
+  if (typeof m.note !== "string" || m.note.length > SUBMISSION_NOTE_MAX_LENGTH) return true;
+  if (m.type === "updated" && m.note.trim().length === 0) return true;
+  return false;
+}
+
+function buildEmailSubject(form: TravelClaimForm, meta: SubmissionMeta): string {
+  const base = `${form.header.team} - ${form.header.name} - TC - ${formatMonthLong(form.header.month)}`;
+  return meta.type === "updated" ? `[UPDATED] ${base}` : base;
+}
+
+/** Lines for the block shown above the traveller/summary details -- empty when a new claim has
+ * no note, so the body is byte-for-byte identical to today's when there's nothing to add. */
+function buildNoteBlockLines(meta: SubmissionMeta): string[] {
+  const note = meta.note.trim();
+  if (meta.type === "updated") {
+    return ["*** UPDATED CLAIM — this replaces a previous submission ***", `What changed: ${note}`, ""];
+  }
+  if (note) {
+    return [`Note from traveller: ${note}`, ""];
+  }
+  return [];
+}
+
+/** Trailing block flagging any pre-submit scan check the traveller overrode (or a document whose
+ * scan was unavailable and was manually self-confirmed instead) -- HR visibility only, see
+ * DocScanStatus. Empty when nothing was overridden, so most emails carry no trace of this at all. */
+function buildScanOverrideLines(coverScanStatus?: DocScanStatus, reportScanStatus?: DocScanStatus): string[] {
+  const lines: string[] = [];
+  const addDoc = (label: string, status?: DocScanStatus) => {
+    if (!status) return;
+    if (!status.scanAvailable) lines.push(`- ${label}: automated scan unavailable — traveller manually confirmed it's complete`);
+    for (const c of status.overriddenChecks) lines.push(`- ${label}: ${c} (overridden by traveller)`);
+  };
+  addDoc("Travel Cover", coverScanStatus);
+  addDoc("Travel Report", reportScanStatus);
+  return lines.length > 0 ? ["", "⚠ Scan overrides:", ...lines] : [];
+}
+
 function buildEmailBody(
   form: TravelClaimForm,
+  meta: SubmissionMeta,
   grandTotalMmk: number,
   attached: DocToSend[],
   linked: DocToSend[],
 ): string {
   const lines = [
+    ...buildNoteBlockLines(meta),
     `Traveller: ${form.header.name}`,
     `Position (Duty Station): ${form.header.position} (${form.header.dutyStation})`,
     `Team: ${form.header.team}`,
@@ -48,13 +103,20 @@ function buildEmailBody(
     lines.push("", "Additional documents (sent as secure links -- combined size was over the email attachment limit):");
     for (const d of linked) lines.push(`- ${d.label}: ${d.file.name} — ${d.file.url}`);
   }
+  lines.push(...buildScanOverrideLines(form.coverScanStatus, form.reportScanStatus));
   return lines.join("\n");
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   let form: TravelClaimForm;
+  let meta: SubmissionMeta;
   try {
-    form = (await req.json()) as TravelClaimForm;
+    const body = (await req.json()) as Partial<SubmitClaimRequestBody>;
+    if (!body.form || isInvalidMeta(body.meta)) {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+    form = body.form;
+    meta = body.meta as SubmissionMeta;
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
@@ -132,8 +194,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await sendGraphEmailWithAttachments({
       to: hrRecipient,
       replyTo: form.header.email,
-      subject: `${form.header.team} - ${form.header.name} - TC - ${formatMonthLong(form.header.month)}`,
-      bodyText: buildEmailBody(form, grandTotal.totalAmountMmk, attached, linked),
+      subject: buildEmailSubject(form, meta),
+      bodyText: buildEmailBody(form, meta, grandTotal.totalAmountMmk, attached, linked),
       attachments,
     });
     console.log("[claim-submit] step=sendMail ok");
@@ -157,5 +219,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error("[claim-submit] step=cleanupBlobs error (non-fatal, email already sent)", e);
   }
 
-  return NextResponse.json({ ok: true, attachedCount: attached.length, linkedCount: linked.length });
+  // Same buffer that was just attached to the HR email -- returned here so the traveller's own
+  // downloaded copy is byte-identical to what HR received, not a separately regenerated file.
+  return NextResponse.json({
+    ok: true,
+    attachedCount: attached.length,
+    linkedCount: linked.length,
+    excelFileName,
+    excelBase64: excelBuffer.toString("base64"),
+  });
 }
