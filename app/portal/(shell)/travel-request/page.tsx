@@ -18,7 +18,7 @@ function makeEmptySubmitMeta(): SubmissionMeta {
   return { type: "new", note: "" };
 }
 
-const inputCls = "rounded border border-gray-300 px-2 py-1.5 text-sm";
+const inputCls = "rounded border border-gray-300 px-2 py-2.5 text-base lg:py-1.5 lg:text-sm";
 
 function makeEmptyHeader(): TravelRequestForm["header"] {
   return {
@@ -199,29 +199,29 @@ export default function TravelRequestPage() {
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5" data-testid="travel-header-card">
         <h2 className="mb-2 text-sm font-semibold text-navy-900">Request details</h2>
-        <div className="flex flex-wrap items-end gap-2">
-          <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-36">
+        <div className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-3 md:gap-y-3 lg:flex lg:flex-row lg:flex-wrap lg:items-end lg:gap-2">
+          <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-full lg:w-36">
             <input type="month" className={`${inputCls} w-full`} value={header.month} onChange={(e) => updateHeader("month", e.target.value)} data-testid="travel-month" />
           </Field>
-          <Field label="Submission Date" error={showErrors ? errors["header.submissionDate"] : undefined} width="w-40">
+          <Field label="Submission Date" error={showErrors ? errors["header.submissionDate"] : undefined} width="w-full lg:w-40">
             <input type="date" className={`${inputCls} w-full`} value={header.submissionDate} onChange={(e) => updateHeader("submissionDate", e.target.value)} data-testid="travel-submission-date" />
           </Field>
-          <Field label="Team" error={showErrors ? errors["header.team"] : undefined} width="w-32">
+          <Field label="Team" error={showErrors ? errors["header.team"] : undefined} width="w-full lg:w-32">
             <select className={`${inputCls} w-full`} value={header.team} onChange={(e) => updateHeader("team", e.target.value)} data-testid="travel-team">
               <option value="">— select —</option>
               {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </Field>
-          <Field label="Name of traveller" error={showErrors ? errors["header.name"] : undefined} width="w-48">
+          <Field label="Name of traveller" error={showErrors ? errors["header.name"] : undefined} width="w-full lg:w-48">
             <input type="text" className={`${inputCls} w-full`} value={header.name} onChange={(e) => updateHeader("name", e.target.value)} data-testid="travel-name" />
           </Field>
-          <Field label="Position" error={showErrors ? errors["header.position"] : undefined} width="w-56">
+          <Field label="Position" error={showErrors ? errors["header.position"] : undefined} width="w-full lg:w-56">
             <input type="text" className={`${inputCls} w-full`} value={header.position} onChange={(e) => updateHeader("position", e.target.value)} data-testid="travel-position" />
           </Field>
-          <Field label="Duty Station" error={showErrors ? errors["header.dutyStation"] : undefined} width="w-56">
+          <Field label="Duty Station" error={showErrors ? errors["header.dutyStation"] : undefined} width="w-full lg:w-56">
             <input type="text" className={`${inputCls} w-full`} value={header.dutyStation} onChange={(e) => updateHeader("dutyStation", e.target.value)} data-testid="travel-duty-station" />
           </Field>
-          <div className="flex w-44 flex-col">
+          <div className="flex w-full flex-col lg:w-44">
             <Field label="Exchange rate (MMK per USD)" error={showErrors ? errors["header.exchangeRate"] : undefined}>
               <input
                 type="number"
@@ -288,7 +288,7 @@ export default function TravelRequestPage() {
         <button
           type="button"
           onClick={addTrip}
-          className="rounded border border-primary px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary-light/30"
+          className="w-full rounded border border-primary px-3 py-2.5 text-base font-medium text-primary hover:bg-primary-light/30 lg:w-auto lg:py-1.5 lg:text-sm"
           data-testid="travel-add-trip"
         >
           Add trip
@@ -310,7 +310,7 @@ export default function TravelRequestPage() {
         {showErrors && errors["signature"] && <p className="mt-1 text-xs text-red-600" data-testid="travel-signature-error">{errors["signature"]}</p>}
 
         <div className="mt-3">
-          <Field label="Your email" error={showErrors ? errors["header.email"] : undefined} width="w-64">
+          <Field label="Your email" error={showErrors ? errors["header.email"] : undefined} width="w-full lg:w-64">
             <input
               type="email"
               className={`${inputCls} w-full`}
@@ -326,11 +326,11 @@ export default function TravelRequestPage() {
       </div>
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5">
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="primary" onClick={handleSubmitClick} disabled={busy || !isValid} data-testid="travel-submit-btn">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+          <Button type="button" variant="primary" onClick={handleSubmitClick} disabled={busy || !isValid} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-submit-btn">
             {busy ? "Sending…" : "Submit travel request"}
           </Button>
-          <Button type="button" variant="secondary" onClick={handleClear} disabled={busy} data-testid="travel-clear-btn">
+          <Button type="button" variant="secondary" onClick={handleClear} disabled={busy} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-clear-btn">
             Clear
           </Button>
         </div>

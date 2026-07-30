@@ -20,7 +20,12 @@ export default function SignaturePad({
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    // The canvas renders at CSS sizes below its 420x140 drawing-buffer resolution on
+    // narrow screens (responsive width, native aspect ratio) -- rescale client coordinates
+    // back into buffer space so strokes land under the pointer at any rendered size.
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
   }
 
   function start(e: React.PointerEvent<HTMLCanvasElement>) {
@@ -77,7 +82,7 @@ export default function SignaturePad({
             key={m}
             type="button"
             onClick={() => setMode(m)}
-            className={`rounded px-3 py-1.5 text-sm font-medium ${mode === m ? "bg-primary text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+            className={`rounded px-3 py-2.5 text-base font-medium lg:py-1.5 lg:text-sm ${mode === m ? "bg-primary text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
             data-testid={`travel-signature-mode-${m}`}
           >
             {m === "draw" ? "Draw signature" : "Upload image"}
@@ -91,7 +96,7 @@ export default function SignaturePad({
             ref={canvasRef}
             width={420}
             height={140}
-            className="cursor-crosshair rounded border border-gray-300 bg-white"
+            className="h-auto w-full max-w-[420px] touch-none cursor-crosshair rounded border border-gray-300 bg-white"
             data-testid="travel-signature-canvas"
             onPointerDown={start}
             onPointerMove={move}
@@ -99,7 +104,7 @@ export default function SignaturePad({
             onPointerLeave={end}
           />
           <div className="mt-2">
-            <Button type="button" variant="secondary" size="sm" onClick={clear} data-testid="travel-signature-clear">
+            <Button type="button" variant="secondary" size="sm" onClick={clear} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-signature-clear">
               Clear
             </Button>
           </div>

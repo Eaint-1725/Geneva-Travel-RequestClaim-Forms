@@ -3,7 +3,7 @@
 import { SUBMISSION_NOTE_MAX_LENGTH, type SubmissionMeta, type SubmissionType } from "@/lib/travel/types";
 import Button from "@/components/Button";
 
-const inputCls = "w-full rounded border border-gray-300 px-2 py-1.5 text-sm";
+const inputCls = "w-full rounded border border-gray-300 px-2 py-2.5 text-base lg:py-1.5 lg:text-sm";
 
 const OPTIONS: { value: SubmissionType; label: string; hint?: string }[] = [
   { value: "new", label: "New request" },
@@ -42,7 +42,7 @@ export default function SubmitNoteDialog({
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-5 shadow-lg">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-gray-200 bg-white p-5 shadow-lg">
         <h2 className="mb-1 text-base font-semibold text-navy-900">Before we send this to HR</h2>
         <p className="mb-3 text-sm text-gray-500">Let HR know whether this is a new request or a change to one already sent.</p>
 
@@ -89,17 +89,18 @@ export default function SubmitNoteDialog({
           {meta.note.length}/{SUBMISSION_NOTE_MAX_LENGTH}
         </p>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
           <Button
             type="button"
             variant="primary"
             onClick={onConfirm}
             disabled={!canSend}
+            className="max-lg:min-h-[44px] max-lg:w-full"
             data-testid="travel-submit-dialog-send"
           >
             {busy ? "Sending…" : "Send to HR"}
           </Button>
-          <Button type="button" variant="secondary" onClick={onCancel} disabled={busy} data-testid="travel-submit-dialog-cancel">
+          <Button type="button" variant="secondary" onClick={onCancel} disabled={busy} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-submit-dialog-cancel">
             Cancel / Back to form
           </Button>
         </div>

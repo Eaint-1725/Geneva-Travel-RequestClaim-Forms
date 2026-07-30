@@ -42,14 +42,19 @@ export default function TripBlock({
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-navy-900">Trip {index + 1}</h3>
         {canRemove && (
-          <button type="button" onClick={onRemove} className="text-xs text-gray-400 hover:text-red-600" data-testid="travel-trip-remove">
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded border border-gray-200 px-3 py-2 text-sm text-gray-500 hover:border-red-300 hover:text-red-600 lg:rounded-none lg:border-0 lg:p-0 lg:text-xs lg:text-gray-400"
+            data-testid="travel-trip-remove"
+          >
             remove trip
           </button>
         )}
       </div>
 
       {trip.rows.map((row, i) => (
-        <div key={row.id} className="mb-1 flex items-start gap-2">
+        <div key={row.id} className="mb-3 flex flex-col gap-2 lg:mb-1 lg:flex-row lg:items-start lg:gap-2">
           <div className="flex-1">
             <RowFields
               row={row}
@@ -65,7 +70,7 @@ export default function TripBlock({
             <button
               type="button"
               onClick={() => removeRow(row.id)}
-              className="text-xs text-gray-400 hover:text-red-600"
+              className="rounded border border-gray-200 px-3 py-2 text-sm text-gray-500 hover:border-red-300 hover:text-red-600 lg:rounded-none lg:border-0 lg:p-0 lg:text-xs lg:text-gray-400"
               data-testid={`travel-row-${i}-remove`}
             >
               remove row
@@ -77,7 +82,7 @@ export default function TripBlock({
       <button
         type="button"
         onClick={addRow}
-        className="rounded border border-primary px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary-light/30"
+        className="w-full rounded border border-primary px-3 py-2.5 text-base font-medium text-primary hover:bg-primary-light/30 lg:w-auto lg:py-1.5 lg:text-sm"
         data-testid="travel-add-row"
       >
         Add row

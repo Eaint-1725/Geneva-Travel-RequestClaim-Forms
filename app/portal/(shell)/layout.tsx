@@ -76,8 +76,23 @@ export default function PortalShellLayout({ children }: { children: React.ReactN
 
   return (
     <PortalOrgContext.Provider value={org}>
-      <div className="flex h-screen">
-        <aside className="flex w-56 shrink-0 flex-col bg-nav text-nav-text" data-testid="portal-nav">
+      <div className="flex h-screen flex-col lg:flex-row">
+        <header className="flex items-center justify-between gap-3 bg-nav p-3 text-nav-text lg:hidden" data-testid="portal-mobile-nav">
+          <p className="text-base font-bold tracking-tight text-white">CorpSec</p>
+          <nav className="flex items-center gap-1">
+            {NAV.filter((n) => n.enabled !== false).map((n) => {
+              const active = pathname.startsWith(n.href);
+              return (
+                <Link key={n.href} href={n.href}
+                  className={`rounded px-2 py-1.5 text-sm ${active ? "bg-primary text-white" : "hover:bg-white/10"}`}
+                  data-testid={`portal-mobile-nav-${n.label.toLowerCase().replace(/\s+/g, "-")}`}>
+                  {n.label}
+                </Link>
+              );
+            })}
+          </nav>
+        </header>
+        <aside className="hidden w-56 shrink-0 flex-col bg-nav text-nav-text lg:flex" data-testid="portal-nav">
           <div className="px-4 py-5">
             <p className="text-lg font-bold tracking-tight text-white">CorpSec</p>
             <p className="text-xs text-text-secondary">Client Portal</p>
@@ -109,7 +124,7 @@ export default function PortalShellLayout({ children }: { children: React.ReactN
             </div>
           )}
         </aside>
-        <main className="flex-1 overflow-y-auto bg-gray-100 p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto bg-gray-100 p-3 lg:p-6">{children}</main>
       </div>
     </PortalOrgContext.Provider>
   );
