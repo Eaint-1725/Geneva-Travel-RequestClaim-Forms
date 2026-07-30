@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildTravelRequestWorkbook, bufferToArrayBuffer } from "@/lib/travel/export-workbook";
+import { buildTravelRequestWorkbook } from "@/lib/travel/export-workbook";
 import { validateForm } from "@/lib/travel/validation";
 import { addSubmission } from "@/lib/portal/submissions";
 import { sendGraphEmail } from "@/lib/email/graph";
@@ -130,11 +130,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error("[travel-submit] step=addSubmission error (non-fatal, email already sent)", e);
   }
 
-  return new NextResponse(bufferToArrayBuffer(buffer), {
-    status: 200,
-    headers: {
-      "Content-Type": XLSX_CONTENT_TYPE,
-      "Content-Disposition": `attachment; filename="${fileName}"`,
-    },
+  // Same buffer that was just attached to the HR email -- returned here so the traveller's own
+  // downloaded copy (auto-download + the success page's fallback button) is byte-identical to
+  // what HR received, not a separately regenerated file. Mirrors the Travel Claim submit route.
+  return NextResponse.json({
+    ok: true,
+    excelFileName: fileName,
+    excelBase64: buffer.toString("base64"),
   });
 }

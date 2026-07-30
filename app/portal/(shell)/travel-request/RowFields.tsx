@@ -36,7 +36,7 @@ export default function RowFields({
   return (
     <div className="mb-2" data-testid={`travel-row-${rowIndex}`}>
       <p className="mb-1 text-[11px] uppercase tracking-wide text-gray-500">{rowLabel}</p>
-      <div className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-3 md:gap-y-3 lg:flex lg:flex-row lg:flex-wrap lg:items-end lg:gap-2">
+      <div className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-3 md:gap-y-3 lg:flex lg:flex-row lg:flex-wrap lg:items-start lg:gap-2">
         <Field label="Date" error={errors.date} width="w-full lg:w-36">
           <input type="date" className={`${inputCls} w-full`} value={row.date} onChange={(e) => set("date", e.target.value)} data-testid={tid("date")} />
         </Field>
