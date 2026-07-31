@@ -27,14 +27,15 @@ export type RowDateRule = "floor" | "ceiling";
 
 /**
  * Row-level validation shared by Travel Request and Travel Claim (the row schema is identical).
- * The two forms use different Date rules, against different reference points: Request is filed
- * BEFORE travel happens, so `month` is a FLOOR (date must be on/after the selected month's first
- * day). Claim is filed AFTER travel happened, so its ceiling is the claim's own Submission Date
- * (`ceilingDate` -- date must be on/before it, no lower bound) -- NOT the Month, which is only a
- * period label for Claim now (see validateClaimForm). Do not "fix" this into agreement in a
- * future parity pass, and do not resurrect a month-based ceiling for Claim -- both are
- * intentional. `dateRule` defaults to "floor" so Travel Request's call site (which never passes
- * `ceilingDate`) is unaffected.
+ * The two forms use different Date rules, against different reference points, and in opposite
+ * directions -- do not "fix" this into agreement in a future parity pass, both are intentional:
+ * - Request (`dateRule = "floor"`, the default): filed BEFORE travel happens. The floor is
+ *   Request's own Submission Date (`thresholdDate` -- date must be on/after it, no upper bound,
+ *   since Submission Date is always today -- see validateForm). Falls back to month-start only
+ *   when `thresholdDate` isn't given (defensive; Request's real call site always passes it).
+ * - Claim (`dateRule = "ceiling"`): filed AFTER travel happened. Its ceiling is Claim's own
+ *   Submission Date (`thresholdDate` -- date must be on/before it, no lower bound) -- NOT the
+ *   Month, which is only a period label for Claim now (see validateClaimForm).
  */
 export function validateRow(
   row: Row,
@@ -42,21 +43,23 @@ export function validateRow(
   month: string,
   errors: Record<string, string>,
   dateRule: RowDateRule = "floor",
-  ceilingDate?: string,
+  thresholdDate?: string,
 ): void {
   const key = (f: string) => rowFieldKey(tripId, row.id, f);
 
   if (!row.date) {
     errors[key("date")] = "Date is required";
   } else if (dateRule === "floor") {
-    if (month && row.date < `${month}-01`) {
+    if (thresholdDate) {
+      if (row.date < thresholdDate) errors[key("date")] = `Date must be on or after ${formatDateLong(thresholdDate)}`;
+    } else if (month && row.date < `${month}-01`) {
       errors[key("date")] = `Date must be on or after ${formatMonthLong(month)}`;
     }
-  } else if (ceilingDate && row.date > ceilingDate) {
-    // No branch for "ceilingDate not yet chosen" -- deliberately: there's nothing to validate
+  } else if (thresholdDate && row.date > thresholdDate) {
+    // No branch for "thresholdDate not yet chosen" -- deliberately: there's nothing to validate
     // against yet, and a missing Submission Date already has its own error on that field (see
     // validateClaimForm), so silently skipping the row-date check here avoids a confusing pile-on.
-    errors[key("date")] = `Date must be on or before the submission date (${formatDateLong(ceilingDate)}).`;
+    errors[key("date")] = `Date must be on or before the submission date (${formatDateLong(thresholdDate)}).`;
   }
 
   if (!row.fromArea) errors[key("fromArea")] = "From (Area) is required";
@@ -104,7 +107,9 @@ export function validateForm(form: TravelRequestForm): ValidationResult {
   } else {
     for (const trip of trips) {
       for (const row of trip.rows) {
-        validateRow(row, trip.id, header.month, errors);
+        // Submission Date (always today -- see Fix 1) is the floor for Travel Request, not the
+        // selected Month; Month stays a period label/grouping only (subject, filename, body).
+        validateRow(row, trip.id, header.month, errors, "floor", header.submissionDate);
       }
     }
   }
