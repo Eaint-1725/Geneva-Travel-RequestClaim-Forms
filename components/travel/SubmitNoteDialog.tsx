@@ -1,6 +1,13 @@
 "use client";
 
-import { SUBMISSION_NOTE_MAX_LENGTH, type SubmissionMeta, type SubmissionType } from "@/lib/travel/types";
+import { ordinal } from "@/lib/travel/format";
+import {
+  SUBMISSION_NOTE_MAX_LENGTH,
+  SUBMISSION_NUMBER_MAX,
+  SUBMISSION_NUMBER_MIN,
+  type SubmissionMeta,
+  type SubmissionType,
+} from "@/lib/travel/types";
 import Button from "@/components/Button";
 
 const inputCls = "w-full rounded border border-gray-300 px-2 py-2.5 text-base lg:py-1.5 lg:text-sm";
@@ -12,7 +19,13 @@ function optionsFor(kind: "request" | "claim"): { value: SubmissionType; label: 
   ];
 }
 
+const SUBMISSION_NUMBERS = Array.from(
+  { length: SUBMISSION_NUMBER_MAX - SUBMISSION_NUMBER_MIN + 1 },
+  (_, i) => SUBMISSION_NUMBER_MIN + i,
+);
+
 export function isSubmitNoteValid(meta: SubmissionMeta): boolean {
+  if (meta.number === null || meta.number < SUBMISSION_NUMBER_MIN || meta.number > SUBMISSION_NUMBER_MAX) return false;
   return meta.type === "updated" ? meta.note.trim().length > 0 : true;
 }
 
@@ -78,6 +91,21 @@ export default function SubmitNoteDialog({
             </label>
           ))}
         </fieldset>
+
+        <label className="mb-3 block text-sm">
+          <span className="mb-0.5 block text-[11px] text-gray-500">Submission number</span>
+          <select
+            className={inputCls}
+            value={meta.number ?? ""}
+            onChange={(e) => onChange({ ...meta, number: e.target.value ? Number(e.target.value) : null })}
+            data-testid="travel-submit-dialog-number"
+          >
+            <option value="">— select —</option>
+            {SUBMISSION_NUMBERS.map((n) => (
+              <option key={n} value={n}>{ordinal(n)} time</option>
+            ))}
+          </select>
+        </label>
 
         <label className="mb-1 block text-sm">
           <span className="mb-0.5 block text-[11px] text-gray-500">

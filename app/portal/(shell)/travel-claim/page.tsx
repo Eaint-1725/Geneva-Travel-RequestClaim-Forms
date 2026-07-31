@@ -47,7 +47,7 @@ const EMPTY_CHECKED_DOCS: Record<OptionalDocKey, boolean> = {
 };
 
 function makeEmptySubmitMeta(): SubmissionMeta {
-  return { type: "new", note: "" };
+  return { type: "new", number: null, note: "" };
 }
 
 export default function TravelClaimPage() {
