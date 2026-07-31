@@ -128,7 +128,8 @@ export interface GraphEmailAttachmentBuffer {
 export interface SendGraphEmailWithAttachmentsParams {
   subject: string;
   bodyText: string;
-  to: string;
+  /** One or more primary recipients (e.g. HR + the traveller) -- all go in To, never CC/BCC. */
+  to: string | string[];
   replyTo: string;
   attachments: GraphEmailAttachmentBuffer[];
 }
@@ -138,13 +139,14 @@ async function createDraftMessage(
   sender: string,
   params: Pick<SendGraphEmailWithAttachmentsParams, "subject" | "bodyText" | "to" | "replyTo">,
 ): Promise<string> {
+  const toAddresses = Array.isArray(params.to) ? params.to : [params.to];
   const res = await fetch(`${GRAPH_BASE}/users/${encodeURIComponent(sender)}/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       subject: params.subject,
       body: { contentType: "Text", content: params.bodyText },
-      toRecipients: [{ emailAddress: { address: params.to } }],
+      toRecipients: toAddresses.map((address) => ({ emailAddress: { address } })),
       replyTo: [{ emailAddress: { address: params.replyTo } }],
     }),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),

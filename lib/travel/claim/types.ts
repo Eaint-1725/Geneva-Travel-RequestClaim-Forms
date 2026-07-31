@@ -1,4 +1,5 @@
 import type { Signature, Trip } from "../types";
+import { todayIso } from "../format";
 
 // Travel Claim reuses Row/Trip/Signature from ../types unchanged -- the trip/row model isn't
 // claim-specific. The header differs by exactly one field: Travel Claim has no form-level
@@ -69,7 +70,9 @@ export interface TravelClaimForm {
 export function makeEmptyClaimHeader(): TravelClaimHeader {
   return {
     month: "",
-    submissionDate: "",
+    // Submission Date is no longer user-entered -- it's always today (the server re-stamps it
+    // at submit time regardless of what's sent, this is just for display -- see Fix 1).
+    submissionDate: todayIso(),
     team: "",
     name: "",
     position: "",

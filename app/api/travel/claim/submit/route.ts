@@ -4,11 +4,17 @@ import { buildTravelClaimWorkbook } from "@/lib/travel/claim/export-workbook";
 import { validateClaimForm } from "@/lib/travel/claim/validation";
 import { getUnRates } from "@/lib/travel/un-rates-cache";
 import { sendGraphEmailWithAttachments, type GraphEmailAttachmentBuffer } from "@/lib/email/graph";
-import { formatMmk, formatMonthLong } from "@/lib/travel/format";
+import { formatMmk, ordinal, todayIso } from "@/lib/travel/format";
+import { buildSubmissionEmailSubject, buildSubmissionFileName, buildSubmissionLabel } from "@/lib/travel/submission-naming";
 import { ALL_DOC_KEYS, DOC_LABELS, MAX_TOTAL_ATTACH_BYTES, type DocKey } from "@/lib/travel/claim/documents";
 import { deleteClaimUploadBlobs } from "@/lib/travel/claim/blob-cleanup";
 import type { DocScanStatus, TravelClaimForm, UploadedFile } from "@/lib/travel/claim/types";
-import { SUBMISSION_NOTE_MAX_LENGTH, type SubmissionMeta } from "@/lib/travel/types";
+import {
+  SUBMISSION_NOTE_MAX_LENGTH,
+  SUBMISSION_NUMBER_MAX,
+  SUBMISSION_NUMBER_MIN,
+  type SubmissionMeta,
+} from "@/lib/travel/types";
 
 export const runtime = "nodejs";
 // Excel build + several Blob fetches + Graph draft/attach(es)/send can run well past Vercel's
@@ -31,12 +37,13 @@ interface SubmitClaimRequestBody {
 // Duplicated rather than imported from app/api/travel/submit/route.ts -- same reasoning as the
 // EMAIL_RE duplication in lib/travel/claim/validation.ts: exporting this purely to share it isn't
 // worth touching the Travel Request route (see the claim's conflict-avoidance rules).
-/** True for anything but a well-formed { type, note } -- callers must have already checked
- * the "updated ⇒ non-empty note" rule client-side; this only guards shape/length/enum. */
+/** True for anything but a well-formed { type, number, note } -- callers must have already
+ * checked the "updated ⇒ non-empty note" rule client-side; this only guards shape/length/enum. */
 function isInvalidMeta(meta: unknown): boolean {
   if (typeof meta !== "object" || meta === null) return true;
   const m = meta as Record<string, unknown>;
   if (m.type !== "new" && m.type !== "updated") return true;
+  if (typeof m.number !== "number" || !Number.isInteger(m.number) || m.number < SUBMISSION_NUMBER_MIN || m.number > SUBMISSION_NUMBER_MAX) return true;
   if (typeof m.note !== "string" || m.note.length > SUBMISSION_NOTE_MAX_LENGTH) return true;
   if (m.type === "updated" && m.note.trim().length === 0) return true;
   return false;
@@ -50,11 +57,6 @@ function isInvalidMeta(meta: unknown): boolean {
 function excelInsertIndex(attached: DocToSend[]): number {
   const idx = attached.findIndex((d) => d.key !== "travelCover");
   return idx === -1 ? attached.length : idx;
-}
-
-function buildEmailSubject(form: TravelClaimForm, meta: SubmissionMeta): string {
-  const base = `${form.header.team} - ${form.header.name} - TC - ${formatMonthLong(form.header.month)}`;
-  return meta.type === "updated" ? `[UPDATED] ${base}` : base;
 }
 
 /** Lines for the block shown above the traveller/summary details -- empty when a new claim has
@@ -102,6 +104,7 @@ function buildEmailBody(
     ...(form.header.travelArea ? [`Travel area: ${form.header.travelArea === "out_of_town" ? "Out-of-town" : "In-town"}`] : []),
     `Month: ${form.header.month}`,
     `Submission date: ${form.header.submissionDate}`,
+    `Submission: ${ordinal(meta.number as number)} (${meta.type === "updated" ? "Updated" : "New"})`,
     `Grand total: ${formatMmk(grandTotalMmk)} MMK`,
     "",
     `The completed travel claim Excel is attached. Replies to this email go directly to the traveller (${form.header.email}).`,
@@ -138,6 +141,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
+  // Submission Date is never taken from the client -- it's always "today" on the server, so it
+  // can't be stale, spoofed, or left blank by a form that no longer collects it (see Fix 1).
+  form = { ...form, header: { ...form.header, submissionDate: todayIso() } };
+
   // Re-derive the UN rate history server-side (never trust a client-supplied rate) -- the
   // same source used to render the rows and to validate them.
   const { rates: unRates } = await getUnRates();
@@ -150,7 +157,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Built before the send so the slow-ish step (workbook generation) never lands after the
   // email is already on its way -- the send is the point past which a failure must not read
   // as "email failed" to the client.
-  const { buffer: excelBuffer, fileName: excelFileName, grandTotal } = await buildTravelClaimWorkbook(form, unRates);
+  const { buffer: excelBuffer, grandTotal } = await buildTravelClaimWorkbook(form, unRates);
   console.log("[claim-submit] step=excel ok");
 
   const hrRecipient = process.env.HR_RECIPIENT;
@@ -158,6 +165,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error("[claim-submit] step=config error=missing HR_RECIPIENT");
     return NextResponse.json({ error: "Couldn't email HR — please try again" }, { status: 500 });
   }
+
+  const label = buildSubmissionLabel(form.header.team, form.header.name, "TC", form.header.month, meta.number as number);
+  const isUpdated = meta.type === "updated";
+  const subject = buildSubmissionEmailSubject(label, isUpdated);
+  const excelFileName = buildSubmissionFileName(label, isUpdated);
+
+  // The traveller goes in To alongside HR -- both are primary recipients of the one email, not
+  // CC/BCC (see Fix 4). A blank traveller email must never fail the whole submission; today
+  // validateClaimForm already requires header.email, so this branch is a defensive fallback only.
+  const travellerEmail = form.header.email.trim();
+  if (!travellerEmail) {
+    console.error("[claim-submit] step=recipients warning=traveller email empty, sending to HR only");
+  }
+  const recipients = travellerEmail ? [hrRecipient, travellerEmail] : [hrRecipient];
 
   // Flatten every uploaded document in a stable, checklist order -- the same list drives both
   // the attach/link split below and the email body's document listing.
@@ -213,9 +234,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   try {
     await sendGraphEmailWithAttachments({
-      to: hrRecipient,
+      to: recipients,
       replyTo: form.header.email,
-      subject: buildEmailSubject(form, meta),
+      subject,
       bodyText: buildEmailBody(form, meta, grandTotal.totalAmountMmk, excelFileName, attached, linked),
       attachments,
     });

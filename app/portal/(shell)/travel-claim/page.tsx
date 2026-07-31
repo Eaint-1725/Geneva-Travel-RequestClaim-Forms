@@ -7,6 +7,7 @@ import Field from "@/components/travel/Field";
 import SignaturePad from "@/components/travel/SignaturePad";
 import SubmitNoteDialog, { isSubmitNoteValid } from "@/components/travel/SubmitNoteDialog";
 import { calcClaimGrandTotal } from "@/lib/travel/claim/calc";
+import { deleteClaimBlobs } from "@/lib/travel/claim/blob-client";
 import { CLAIM_EXCEL_STORAGE_KEY, downloadClaimExcel, type StoredClaimExcel } from "@/lib/travel/claim/excel-download";
 import { resolveRowRate } from "@/lib/travel/claim/rate";
 import type { DocScanResult } from "@/lib/travel/claim/document-scan";
@@ -29,7 +30,7 @@ import {
   type OptionalDocKey,
 } from "@/lib/travel/claim/documents";
 import { TEAMS } from "@/lib/travel/rates";
-import { formatMmk, formatUsd } from "@/lib/travel/format";
+import { formatDateLong, formatMmk, formatUsd } from "@/lib/travel/format";
 import { makeEmptyTrip, type Row, type Signature, type SubmissionMeta, type Trip } from "@/lib/travel/types";
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
 import ClaimTripBlock from "./ClaimTripBlock";
@@ -147,6 +148,10 @@ export default function TravelClaimPage() {
   // uploaded and is failing its scan must still block, which `coverReport &&` used to suppress).
   const docsGatePassed = coverGatePassed && reportGatePassed;
   const docsGateActive = !docsGatePassed;
+
+  // A ticked optional-doc checkbox requires at least one uploaded file -- same "gate" treatment
+  // as docsGateActive above (client-side only; see Fix 5). Unticked keys are never included here.
+  const optionalDocsGateActive = OPTIONAL_DOC_KEYS.some((key) => checkedDocs[key] && documents[key].length === 0);
 
   const rateForRow = useCallback((row: Row) => resolveRowRate(row.date, unRates)?.rate ?? 0, [unRates]);
   const grandTotal = useMemo(() => calcClaimGrandTotal(trips, rateForRow), [trips, rateForRow]);
@@ -311,7 +316,14 @@ export default function TravelClaimPage() {
   function toggleOptionalDoc(key: OptionalDocKey, checked: boolean) {
     setInteracted(true);
     setCheckedDocs((c) => ({ ...c, [key]: checked }));
-    if (!checked) setDocuments((d) => ({ ...d, [key]: [] })); // unticking drops its files
+    if (!checked) {
+      // Unticking drops its files from the submission AND deletes any already-uploaded blob for
+      // it (see Fix 5) -- same optimistic-then-fire-and-forget-delete pattern as
+      // ClaimDocumentField's own removeFile.
+      const removed = documents[key];
+      if (removed.length > 0) deleteClaimBlobs(removed.map((f) => f.url));
+      setDocuments((d) => ({ ...d, [key]: [] }));
+    }
   }
 
   async function handleRefreshRate() {
@@ -361,7 +373,7 @@ export default function TravelClaimPage() {
     setNotice(null);
     // Keep the existing validation + scan-gating checks first -- the dialog only opens once the
     // form AND the document scans are both clear; it must never become a way to bypass either.
-    if (!isValid || uploadingFields.size > 0 || docsGateActive || coverScanning || reportScanning) return;
+    if (!isValid || uploadingFields.size > 0 || docsGateActive || coverScanning || reportScanning || optionalDocsGateActive) return;
     setDialogOpen(true);
   }
 
@@ -457,8 +469,10 @@ export default function TravelClaimPage() {
           <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-full lg:w-36">
             <input type="month" className={`${inputCls} w-full`} value={header.month} onChange={(e) => updateHeader("month", e.target.value)} data-testid="travel-claim-month" />
           </Field>
-          <Field label="Submission Date" error={showErrors ? errors["header.submissionDate"] : undefined} width="w-full lg:w-40">
-            <input type="date" className={`${inputCls} w-full`} value={header.submissionDate} onChange={(e) => updateHeader("submissionDate", e.target.value)} data-testid="travel-claim-submission-date" />
+          <Field label="Submission Date" width="w-full lg:w-40">
+            <p className={`${inputCls} w-full bg-gray-50 text-gray-700`} data-testid="travel-claim-submission-date">
+              {formatDateLong(header.submissionDate)}
+            </p>
           </Field>
           <Field label="Team" error={showErrors ? errors["header.team"] : undefined} width="w-full lg:w-32">
             <select className={`${inputCls} w-full`} value={header.team} onChange={(e) => updateHeader("team", e.target.value)} data-testid="travel-claim-team">
@@ -695,6 +709,11 @@ export default function TravelClaimPage() {
                     disabled={busy || docsGateActive}
                     onUploadingChange={(u) => setFieldUploading(key, u)}
                   />
+                  {documents[key].length === 0 && (
+                    <p className="mt-1 text-xs text-red-600" data-testid={`travel-claim-doc-${key}-required-error`}>
+                      {DOC_LABELS[key]} is required — upload the file or untick it.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -730,7 +749,7 @@ export default function TravelClaimPage() {
             type="button"
             variant="primary"
             onClick={handleSubmitClick}
-            disabled={busy || !isValid || uploadingFields.size > 0 || coverScanning || reportScanning || docsGateActive}
+            disabled={busy || !isValid || uploadingFields.size > 0 || coverScanning || reportScanning || docsGateActive || optionalDocsGateActive}
             className="max-lg:min-h-[44px] max-lg:w-full"
             data-testid="travel-claim-submit-btn"
           >
@@ -747,6 +766,9 @@ export default function TravelClaimPage() {
         )}
         {isValid && uploadingFields.size === 0 && !coverScanning && !reportScanning && docsGateActive && (
           <p className="mt-1 text-xs text-red-600">The Travel Cover/Report has a blocking issue above that must be resolved (or overridden) before submitting.</p>
+        )}
+        {isValid && uploadingFields.size === 0 && !coverScanning && !reportScanning && !docsGateActive && optionalDocsGateActive && (
+          <p className="mt-1 text-xs text-red-600">Upload a file for each ticked optional document above, or untick it, before submitting.</p>
         )}
       </div>
 
