@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 import { calcGrandTotal } from "@/lib/travel/calc";
 import { REQUEST_EXCEL_STORAGE_KEY, downloadRequestExcel, type StoredRequestExcel } from "@/lib/travel/excel-download";
-import { formatMmk, formatUsd } from "@/lib/travel/format";
+import { formatDateLong, formatMmk, formatUsd, todayIso } from "@/lib/travel/format";
 import { TEAMS } from "@/lib/travel/rates";
 import { makeEmptyTrip, type Signature, type SubmissionMeta, type Trip, type TravelRequestForm } from "@/lib/travel/types";
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
@@ -16,7 +16,7 @@ import SubmitNoteDialog, { isSubmitNoteValid } from "@/components/travel/SubmitN
 import TripBlock from "./TripBlock";
 
 function makeEmptySubmitMeta(): SubmissionMeta {
-  return { type: "new", note: "" };
+  return { type: "new", number: null, note: "" };
 }
 
 const inputCls = "rounded border border-gray-300 px-2 py-2.5 text-base lg:py-1.5 lg:text-sm";
@@ -24,7 +24,9 @@ const inputCls = "rounded border border-gray-300 px-2 py-2.5 text-base lg:py-1.5
 function makeEmptyHeader(): TravelRequestForm["header"] {
   return {
     month: "",
-    submissionDate: "",
+    // Submission Date is no longer user-entered -- it's always today (the server re-stamps it
+    // at submit time regardless of what's sent, this is just for display -- see Fix 1).
+    submissionDate: todayIso(),
     team: "",
     name: "",
     position: "",
@@ -211,8 +213,10 @@ export default function TravelRequestPage() {
           <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-full lg:w-36">
             <input type="month" className={`${inputCls} w-full`} value={header.month} onChange={(e) => updateHeader("month", e.target.value)} data-testid="travel-month" />
           </Field>
-          <Field label="Submission Date" error={showErrors ? errors["header.submissionDate"] : undefined} width="w-full lg:w-40">
-            <input type="date" className={`${inputCls} w-full`} value={header.submissionDate} onChange={(e) => updateHeader("submissionDate", e.target.value)} data-testid="travel-submission-date" />
+          <Field label="Submission Date" width="w-full lg:w-40">
+            <p className={`${inputCls} w-full bg-gray-50 text-gray-700`} data-testid="travel-submission-date">
+              {formatDateLong(header.submissionDate)}
+            </p>
           </Field>
           <Field label="Team" error={showErrors ? errors["header.team"] : undefined} width="w-full lg:w-32">
             <select className={`${inputCls} w-full`} value={header.team} onChange={(e) => updateHeader("team", e.target.value)} data-testid="travel-team">

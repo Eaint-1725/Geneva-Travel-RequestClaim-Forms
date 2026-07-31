@@ -53,8 +53,14 @@ export type SubmissionType = "new" | "updated";
 
 export const SUBMISSION_NOTE_MAX_LENGTH = 500;
 
+/** 1st through 10th -- user-declared count of how many times this month's request has been sent. */
+export const SUBMISSION_NUMBER_MIN = 1;
+export const SUBMISSION_NUMBER_MAX = 10;
+
 export interface SubmissionMeta {
   type: SubmissionType;
+  /** User-declared submission count (1-10), required before Send enables. Null until chosen. */
+  number: number | null;
   note: string;
 }
 

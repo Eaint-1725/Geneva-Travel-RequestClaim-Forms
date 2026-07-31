@@ -58,7 +58,8 @@ export interface GraphEmailAttachment {
 export interface SendGraphEmailParams {
   subject: string;
   bodyText: string;
-  to: string;
+  /** One or more primary recipients (e.g. HR + the traveller) -- all go in To, never CC/BCC. */
+  to: string | string[];
   replyTo: string;
   attachment: GraphEmailAttachment;
 }
@@ -66,6 +67,8 @@ export interface SendGraphEmailParams {
 export async function sendGraphEmail(params: SendGraphEmailParams): Promise<void> {
   const sender = requireEnv("GRAPH_SENDER");
   const accessToken = await getGraphAccessToken();
+
+  const toAddresses = Array.isArray(params.to) ? params.to : [params.to];
 
   const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
     method: "POST",
@@ -77,7 +80,7 @@ export async function sendGraphEmail(params: SendGraphEmailParams): Promise<void
       message: {
         subject: params.subject,
         body: { contentType: "Text", content: params.bodyText },
-        toRecipients: [{ emailAddress: { address: params.to } }],
+        toRecipients: toAddresses.map((address) => ({ emailAddress: { address } })),
         replyTo: [{ emailAddress: { address: params.replyTo } }],
         attachments: [
           {

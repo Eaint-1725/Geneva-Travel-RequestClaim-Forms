@@ -3,8 +3,15 @@ import { buildTravelRequestWorkbook } from "@/lib/travel/export-workbook";
 import { validateForm } from "@/lib/travel/validation";
 import { addSubmission } from "@/lib/portal/submissions";
 import { sendGraphEmail } from "@/lib/email/graph";
-import { formatMmk, formatMonthLong } from "@/lib/travel/format";
-import { SUBMISSION_NOTE_MAX_LENGTH, type SubmissionMeta, type TravelRequestForm } from "@/lib/travel/types";
+import { formatMmk, ordinal, todayIso } from "@/lib/travel/format";
+import { buildSubmissionEmailSubject, buildSubmissionFileName, buildSubmissionLabel } from "@/lib/travel/submission-naming";
+import {
+  SUBMISSION_NOTE_MAX_LENGTH,
+  SUBMISSION_NUMBER_MAX,
+  SUBMISSION_NUMBER_MIN,
+  type SubmissionMeta,
+  type TravelRequestForm,
+} from "@/lib/travel/types";
 
 export const runtime = "nodejs";
 // Token fetch + Graph sendMail + Excel build can run close to Vercel's default 10s function
@@ -19,20 +26,16 @@ interface SubmitRequestBody {
   meta: SubmissionMeta;
 }
 
-/** True for anything but a well-formed { type, note } -- callers must have already checked
- * the "updated ⇒ non-empty note" rule client-side; this only guards shape/length/enum. */
+/** True for anything but a well-formed { type, number, note } -- callers must have already
+ * checked the "updated ⇒ non-empty note" rule client-side; this only guards shape/length/enum. */
 function isInvalidMeta(meta: unknown): boolean {
   if (typeof meta !== "object" || meta === null) return true;
   const m = meta as Record<string, unknown>;
   if (m.type !== "new" && m.type !== "updated") return true;
+  if (typeof m.number !== "number" || !Number.isInteger(m.number) || m.number < SUBMISSION_NUMBER_MIN || m.number > SUBMISSION_NUMBER_MAX) return true;
   if (typeof m.note !== "string" || m.note.length > SUBMISSION_NOTE_MAX_LENGTH) return true;
   if (m.type === "updated" && m.note.trim().length === 0) return true;
   return false;
-}
-
-function buildEmailSubject(form: TravelRequestForm, meta: SubmissionMeta): string {
-  const base = `${form.header.team} - ${form.header.name} - TR - ${formatMonthLong(form.header.month)}`;
-  return meta.type === "updated" ? `[UPDATED] ${base}` : base;
 }
 
 /** Lines for the block shown above the traveller/summary details -- empty when a new request
@@ -56,6 +59,7 @@ function buildEmailBody(form: TravelRequestForm, meta: SubmissionMeta, grandTota
     `Team: ${form.header.team}`,
     `Month: ${form.header.month}`,
     `Submission date: ${form.header.submissionDate}`,
+    `Submission: ${ordinal(meta.number as number)} (${meta.type === "updated" ? "Updated" : "New"})`,
     `Grand total: ${formatMmk(grandTotalMmk)} MMK`,
     "",
     `The completed travel request Excel is attached. Replies to this email go directly to the traveller (${form.header.email}).`,
@@ -76,6 +80,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
+  // Submission Date is never taken from the client -- it's always "today" on the server, so it
+  // can't be stale, spoofed, or left blank by a form that no longer collects it (see Fix 1).
+  form = { ...form, header: { ...form.header, submissionDate: todayIso() } };
+
   const { isValid, errors } = validateForm(form);
   if (!isValid) {
     return NextResponse.json({ error: "The request is missing required fields", errors }, { status: 400 });
@@ -84,7 +92,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Built before the send so the slow-ish step (workbook generation) never lands after the
   // email is already on its way -- the send is the point past which a failure must not read
   // as "email failed" to the client.
-  const { buffer, fileName, grandTotal } = await buildTravelRequestWorkbook(form);
+  const { buffer, grandTotal } = await buildTravelRequestWorkbook(form);
   console.log("[travel-submit] step=excel ok");
 
   const hrRecipient = process.env.HR_RECIPIENT;
@@ -93,11 +101,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Couldn't email HR — please try again" }, { status: 500 });
   }
 
+  const label = buildSubmissionLabel(form.header.team, form.header.name, "TR", form.header.month, meta.number as number);
+  const isUpdated = meta.type === "updated";
+  const subject = buildSubmissionEmailSubject(label, isUpdated);
+  const fileName = buildSubmissionFileName(label, isUpdated);
+
+  // The traveller goes in To alongside HR -- both are primary recipients of the one email, not
+  // CC/BCC (see Fix 4). A blank traveller email must never fail the whole submission; today
+  // validateForm already requires header.email, so this branch is a defensive fallback only.
+  const travellerEmail = form.header.email.trim();
+  if (!travellerEmail) {
+    console.error("[travel-submit] step=recipients warning=traveller email empty, sending to HR only");
+  }
+  const recipients = travellerEmail ? [hrRecipient, travellerEmail] : [hrRecipient];
+
   try {
     await sendGraphEmail({
-      to: hrRecipient,
+      to: recipients,
       replyTo: form.header.email,
-      subject: buildEmailSubject(form, meta),
+      subject,
       bodyText: buildEmailBody(form, meta, grandTotal.totalAmountMmk),
       attachment: {
         name: fileName,

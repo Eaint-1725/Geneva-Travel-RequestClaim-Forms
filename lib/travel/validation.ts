@@ -57,12 +57,6 @@ export function validateForm(form: TravelRequestForm): ValidationResult {
 
   if (!header.month) errors["header.month"] = "Month is required";
 
-  if (!header.submissionDate) errors["header.submissionDate"] = "Submission date is required";
-  else {
-    const today = new Date().toISOString().slice(0, 10);
-    if (header.submissionDate > today) errors["header.submissionDate"] = "Submission date can't be in the future";
-  }
-
   if (!header.team) errors["header.team"] = "Team is required";
   if (!header.name.trim()) errors["header.name"] = "Name of traveller is required";
   if (!header.position.trim()) errors["header.position"] = "Position is required";
