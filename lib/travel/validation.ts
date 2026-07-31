@@ -1,5 +1,5 @@
 import type { Row, TravelRequestForm } from "./types";
-import { formatMonthLong } from "./format";
+import { formatDateLong, formatMonthLong } from "./format";
 
 export interface ValidationResult {
   errors: Record<string, string>;
@@ -23,12 +23,26 @@ export function rowErrors(errors: Record<string, string>, tripId: string, rowId:
   return out;
 }
 
-/** Row-level validation shared by Travel Request and Travel Claim (the row schema is identical). */
-export function validateRow(row: Row, tripId: string, month: string, errors: Record<string, string>): void {
+/**
+ * Row-level validation shared by Travel Request and Travel Claim (the row schema is identical).
+ * `floorDate`, when given, is Travel Request's own Submission Date used as a FLOOR (filed
+ * BEFORE travel happens: no upper bound, only "not before submission" -- see validateForm).
+ * Travel Claim is filed AFTER travel happened and instead treats ITS Submission Date as a
+ * CEILING ("not after submission", no lower bound) via its own claim-side validation -- that is
+ * intentionally the opposite direction and lives outside this function. Do not align the two into
+ * the same rule in a future parity pass. Omitting `floorDate` (Travel Claim's call site) falls
+ * back to the original month-based floor, unchanged.
+ */
+export function validateRow(row: Row, tripId: string, month: string, errors: Record<string, string>, floorDate?: string): void {
   const key = (f: string) => rowFieldKey(tripId, row.id, f);
 
-  if (!row.date) errors[key("date")] = "Date is required";
-  else if (month && row.date < `${month}-01`) errors[key("date")] = `Date must be on or after ${formatMonthLong(month)}`;
+  if (!row.date) {
+    errors[key("date")] = "Date is required";
+  } else if (floorDate) {
+    if (row.date < floorDate) errors[key("date")] = `Date must be on or after ${formatDateLong(floorDate)}`;
+  } else if (month && row.date < `${month}-01`) {
+    errors[key("date")] = `Date must be on or after ${formatMonthLong(month)}`;
+  }
 
   if (!row.fromArea) errors[key("fromArea")] = "From (Area) is required";
   if (!row.toArea) errors[key("toArea")] = "To (Area) is required";
@@ -75,7 +89,9 @@ export function validateForm(form: TravelRequestForm): ValidationResult {
   } else {
     for (const trip of trips) {
       for (const row of trip.rows) {
-        validateRow(row, trip.id, header.month, errors);
+        // Submission Date (always today -- see Fix 1) is the floor for Travel Request, not the
+        // selected Month; Month stays a period label/grouping only (subject, filename, body).
+        validateRow(row, trip.id, header.month, errors, header.submissionDate);
       }
     }
   }
