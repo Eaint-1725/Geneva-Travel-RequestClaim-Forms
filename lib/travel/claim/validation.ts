@@ -1,5 +1,6 @@
 import { rowFieldKey, validateRow } from "../validation";
 import type { UnRate } from "../un-rates";
+import { findTraveller } from "../travellers";
 import { resolveRowRate } from "./rate";
 import type { TravelClaimForm } from "./types";
 import { coverReportRequired } from "./documents";
@@ -26,10 +27,11 @@ export function validateClaimForm(form: TravelClaimForm, unRates: UnRate[]): Val
 
   if (!header.month) errors["header.month"] = "Month is required";
 
-  if (!header.team) errors["header.team"] = "Team is required";
+  // Team/Position/Duty Station are derived from the selected traveller (same as Travel Request)
+  // -- they no longer get their own required checks; a single resolvable Name guarantees all
+  // three are populated.
   if (!header.name.trim()) errors["header.name"] = "Name of traveller is required";
-  if (!header.position.trim()) errors["header.position"] = "Position is required";
-  if (!header.dutyStation.trim()) errors["header.dutyStation"] = "Duty Station is required";
+  else if (!findTraveller(header.name)) errors["header.name"] = "Select a valid traveller from the list";
 
   if (!header.email.trim()) errors["header.email"] = "Email is required";
   else if (!EMAIL_RE.test(header.email.trim())) errors["header.email"] = "Enter a valid email address";
@@ -59,7 +61,7 @@ export function validateClaimForm(form: TravelClaimForm, unRates: UnRate[]): Val
         // "ceiling" against the claim's own Submission Date, NOT the Month (Month is just a
         // period label for Claim -- see validateRow's own comment). `header.month` is still
         // passed positionally but is ignored in "ceiling" mode.
-        validateRow(row, trip.id, header.month, errors, "ceiling", header.submissionDate);
+        validateRow(row, trip.id, header.month, errors, "ceiling", header.submissionDate, true);
         if (row.date && !resolveRowRate(row.date, unRates)) {
           errors[rowFieldKey(trip.id, row.id, "exchangeRate")] = "No UN rate on file for this date";
         }
