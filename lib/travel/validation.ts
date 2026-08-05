@@ -1,5 +1,6 @@
 import type { Row, TravelRequestForm } from "./types";
 import { formatDateLong, formatMonthLong } from "./format";
+import { findTraveller } from "./travellers";
 
 export interface ValidationResult {
   errors: Record<string, string>;
@@ -36,6 +37,9 @@ export type RowDateRule = "floor" | "ceiling";
  * - Claim (`dateRule = "ceiling"`): filed AFTER travel happened. Its ceiling is Claim's own
  *   Submission Date (`thresholdDate` -- date must be on/before it, no lower bound) -- NOT the
  *   Month, which is only a period label for Claim now (see validateClaimForm).
+ * `enforceElsewhereTownship`, when true, requires the matching Township whenever its Area is
+ * "Elsewhere". Defaults to false so this stays a Travel-Request-only rule until Travel Claim's UI
+ * is updated for parity (its Township fields don't yet surface an inline error for this).
  */
 export function validateRow(
   row: Row,
@@ -44,6 +48,7 @@ export function validateRow(
   errors: Record<string, string>,
   dateRule: RowDateRule = "floor",
   thresholdDate?: string,
+  enforceElsewhereTownship = false,
 ): void {
   const key = (f: string) => rowFieldKey(tripId, row.id, f);
 
@@ -65,6 +70,11 @@ export function validateRow(
   if (!row.fromArea) errors[key("fromArea")] = "From (Area) is required";
   if (!row.toArea) errors[key("toArea")] = "To (Area) is required";
   if (!row.mode) errors[key("mode")] = "Mode of Travel is required";
+
+  if (enforceElsewhereTownship) {
+    if (row.fromArea === "Elsewhere" && !row.fromTownship) errors[key("fromTownship")] = "From Township is required";
+    if (row.toArea === "Elsewhere" && !row.toTownship) errors[key("toTownship")] = "To Township is required";
+  }
 
   if (row.noOfDays === null) errors[key("noOfDays")] = "No of days is required";
   else if (row.noOfDays < 0) errors[key("noOfDays")] = "No of days must be 0 or more";
@@ -89,10 +99,10 @@ export function validateForm(form: TravelRequestForm): ValidationResult {
 
   if (!header.month) errors["header.month"] = "Month is required";
 
-  if (!header.team) errors["header.team"] = "Team is required";
+  // Team/Position/Duty Station are derived from the selected traveller (Fix 2) -- they no longer
+  // get their own required checks; a single resolvable Name guarantees all three are populated.
   if (!header.name.trim()) errors["header.name"] = "Name of traveller is required";
-  if (!header.position.trim()) errors["header.position"] = "Position is required";
-  if (!header.dutyStation.trim()) errors["header.dutyStation"] = "Duty Station is required";
+  else if (!findTraveller(header.name)) errors["header.name"] = "Select a valid traveller from the list";
 
   if (header.exchangeRate === null) errors["header.exchangeRate"] = "Exchange rate is required";
   else if (header.exchangeRate <= 0) errors["header.exchangeRate"] = "Exchange rate must be greater than 0";
@@ -109,7 +119,7 @@ export function validateForm(form: TravelRequestForm): ValidationResult {
       for (const row of trip.rows) {
         // Submission Date (always today -- see Fix 1) is the floor for Travel Request, not the
         // selected Month; Month stays a period label/grouping only (subject, filename, body).
-        validateRow(row, trip.id, header.month, errors, "floor", header.submissionDate);
+        validateRow(row, trip.id, header.month, errors, "floor", header.submissionDate, true);
       }
     }
   }

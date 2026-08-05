@@ -1,6 +1,6 @@
 "use client";
 
-import { AREAS, DEDUCTIONS, MODES_OF_TRAVEL, TOWNSHIPS } from "@/lib/travel/rates";
+import { AREAS, DEDUCTIONS, MODES_OF_TRAVEL, TOWNSHIPS, calcTerminalAllowanceUsd } from "@/lib/travel/rates";
 import { formatMmk, formatUsd } from "@/lib/travel/format";
 import type { Row } from "@/lib/travel/types";
 import Field from "@/components/travel/Field";
@@ -33,6 +33,30 @@ export default function RowFields({
   const set = <K extends keyof Row>(field: K, value: Row[K]) => onChange({ ...row, [field]: value });
   const tid = (suffix: string) => `travel-row-${rowIndex}-${suffix}`;
 
+  const setMode = (mode: string) => {
+    if (mode === "Air") {
+      onChange({ ...row, mode, terminalAllowanceUsd: calcTerminalAllowanceUsd(row.fromArea, row.toArea) });
+    } else {
+      onChange({ ...row, mode, airTicketMmk: null, terminalAllowanceUsd: null });
+    }
+  };
+
+  const setFromArea = (fromArea: string) => {
+    if (row.mode === "Air") {
+      onChange({ ...row, fromArea, terminalAllowanceUsd: calcTerminalAllowanceUsd(fromArea, row.toArea) });
+    } else {
+      onChange({ ...row, fromArea });
+    }
+  };
+
+  const setToArea = (toArea: string) => {
+    if (row.mode === "Air") {
+      onChange({ ...row, toArea, terminalAllowanceUsd: calcTerminalAllowanceUsd(row.fromArea, toArea) });
+    } else {
+      onChange({ ...row, toArea });
+    }
+  };
+
   return (
     <div className="mb-2" data-testid={`travel-row-${rowIndex}`}>
       <p className="mb-1 text-[11px] uppercase tracking-wide text-gray-500">{rowLabel}</p>
@@ -41,31 +65,31 @@ export default function RowFields({
           <input type="date" className={`${inputCls} w-full`} value={row.date} onChange={(e) => set("date", e.target.value)} data-testid={tid("date")} />
         </Field>
         <Field label="From (Area)" error={errors.fromArea} width="w-full lg:w-40">
-          <select className={`${inputCls} w-full`} value={row.fromArea} onChange={(e) => set("fromArea", e.target.value)} data-testid={tid("from-area")}>
+          <select className={`${inputCls} w-full`} value={row.fromArea} onChange={(e) => setFromArea(e.target.value)} data-testid={tid("from-area")}>
             <option value="">— select —</option>
             {AREAS.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
           </select>
         </Field>
-        <Field label="From Township (optional)" width="w-full lg:w-40">
+        <Field label={`From Township${row.fromArea === "Elsewhere" ? "" : " (optional)"}`} error={errors.fromTownship} width="w-full lg:w-40">
           <select className={`${inputCls} w-full`} value={row.fromTownship} onChange={(e) => set("fromTownship", e.target.value)} data-testid={tid("from-township")}>
             <option value="">—</option>
             {TOWNSHIPS.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </Field>
         <Field label="To (Area)" error={errors.toArea} width="w-full lg:w-40">
-          <select className={`${inputCls} w-full`} value={row.toArea} onChange={(e) => set("toArea", e.target.value)} data-testid={tid("to-area")}>
+          <select className={`${inputCls} w-full`} value={row.toArea} onChange={(e) => setToArea(e.target.value)} data-testid={tid("to-area")}>
             <option value="">— select —</option>
             {AREAS.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
           </select>
         </Field>
-        <Field label="To Township (optional)" width="w-full lg:w-40">
+        <Field label={`To Township${row.toArea === "Elsewhere" ? "" : " (optional)"}`} error={errors.toTownship} width="w-full lg:w-40">
           <select className={`${inputCls} w-full`} value={row.toTownship} onChange={(e) => set("toTownship", e.target.value)} data-testid={tid("to-township")}>
             <option value="">—</option>
             {TOWNSHIPS.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </Field>
         <Field label="Mode of Travel" error={errors.mode} width="w-full lg:w-36">
-          <select className={`${inputCls} w-full`} value={row.mode} onChange={(e) => set("mode", e.target.value)} data-testid={tid("mode")}>
+          <select className={`${inputCls} w-full`} value={row.mode} onChange={(e) => setMode(e.target.value)} data-testid={tid("mode")}>
             <option value="">— select —</option>
             {MODES_OF_TRAVEL.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
@@ -82,12 +106,16 @@ export default function RowFields({
         <Field label="Travel cost + Hotel Bill (MMK)" error={errors.travelHotelMmk} width="w-full lg:w-44">
           <input type="number" min="0" className={`${inputCls} w-full`} value={row.travelHotelMmk ?? ""} onChange={(e) => set("travelHotelMmk", numOrNull(e.target.value))} data-testid={tid("travel-hotel")} />
         </Field>
-        <Field label={`Air Ticket Cost (MMK, ${row.mode === "Air" ? "required" : "optional"})`} error={errors.airTicketMmk} width="w-full lg:w-40">
-          <input type="number" min="0" className={`${inputCls} w-full`} value={row.airTicketMmk ?? ""} onChange={(e) => set("airTicketMmk", numOrNull(e.target.value))} data-testid={tid("air-ticket")} />
-        </Field>
-        <Field label={`Terminal Allowance (USD, ${row.mode === "Air" ? "required" : "optional"})`} error={errors.terminalAllowanceUsd} width="w-full lg:w-44">
-          <input type="number" min="0" className={`${inputCls} w-full`} value={row.terminalAllowanceUsd ?? ""} onChange={(e) => set("terminalAllowanceUsd", numOrNull(e.target.value))} data-testid={tid("terminal")} />
-        </Field>
+        {row.mode === "Air" && (
+          <>
+            <Field label="Air Ticket Cost (MMK, required)" error={errors.airTicketMmk} width="w-full lg:w-40">
+              <input type="number" min="0" className={`${inputCls} w-full`} value={row.airTicketMmk ?? ""} onChange={(e) => set("airTicketMmk", numOrNull(e.target.value))} data-testid={tid("air-ticket")} />
+            </Field>
+            <Field label="Terminal Allowance (USD, required)" error={errors.terminalAllowanceUsd} width="w-full lg:w-44">
+              <input type="text" readOnly className={`${inputCls} w-full`} value={formatUsd(row.terminalAllowanceUsd ?? 0)} data-testid={tid("terminal")} />
+            </Field>
+          </>
+        )}
         <Field label="Purpose of travel" error={errors.purpose} width="w-full lg:w-56">
           <textarea
             rows={3}

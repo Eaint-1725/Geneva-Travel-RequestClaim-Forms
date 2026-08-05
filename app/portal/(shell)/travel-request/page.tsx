@@ -6,13 +6,14 @@ import Button from "@/components/Button";
 import { calcGrandTotal } from "@/lib/travel/calc";
 import { REQUEST_EXCEL_STORAGE_KEY, downloadRequestExcel, type StoredRequestExcel } from "@/lib/travel/excel-download";
 import { formatDateLong, formatMmk, formatUsd, todayIso } from "@/lib/travel/format";
-import { TEAMS } from "@/lib/travel/rates";
 import { makeEmptyTrip, type Signature, type SubmissionMeta, type Trip, type TravelRequestForm } from "@/lib/travel/types";
+import { TRAVELLERS, type Traveller } from "@/lib/travel/travellers";
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
 import { validateForm } from "@/lib/travel/validation";
 import Field from "@/components/travel/Field";
 import SignaturePad from "@/components/travel/SignaturePad";
 import SubmitNoteDialog, { isSubmitNoteValid } from "@/components/travel/SubmitNoteDialog";
+import TravellerCombobox from "@/components/travel/TravellerCombobox";
 import TripBlock from "./TripBlock";
 
 function makeEmptySubmitMeta(): SubmissionMeta {
@@ -96,6 +97,19 @@ export default function TravelRequestPage() {
   function updateHeader<K extends keyof TravelRequestForm["header"]>(field: K, value: TravelRequestForm["header"][K]) {
     setInteracted(true);
     setHeader((h) => ({ ...h, [field]: value }));
+  }
+
+  // Selecting a traveller (or clearing the selection) sets Name/Team/Position/Duty Station
+  // together in one update -- Team/Position/Duty Station are derived and read-only (Fix 2).
+  function selectTraveller(traveller: Traveller | null) {
+    setInteracted(true);
+    setHeader((h) => ({
+      ...h,
+      name: traveller?.name ?? "",
+      team: traveller?.team ?? "",
+      position: traveller?.position ?? "",
+      dutyStation: traveller?.dutyStation ?? "",
+    }));
   }
 
   async function handleRefreshRate() {
@@ -218,20 +232,17 @@ export default function TravelRequestPage() {
               {formatDateLong(header.submissionDate)}
             </p>
           </Field>
-          <Field label="Team" error={showErrors ? errors["header.team"] : undefined} width="w-full lg:w-32">
-            <select className={`${inputCls} w-full`} value={header.team} onChange={(e) => updateHeader("team", e.target.value)} data-testid="travel-team">
-              <option value="">— select —</option>
-              {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </Field>
           <Field label="Name of traveller" error={showErrors ? errors["header.name"] : undefined} width="w-full lg:w-48">
-            <input type="text" className={`${inputCls} w-full`} value={header.name} onChange={(e) => updateHeader("name", e.target.value)} data-testid="travel-name" />
+            <TravellerCombobox travellers={TRAVELLERS} value={header.name} onSelect={selectTraveller} testid="travel-name" />
+          </Field>
+          <Field label="Team" error={showErrors ? errors["header.team"] : undefined} width="w-full lg:w-32">
+            <input type="text" readOnly className={`${inputCls} w-full bg-gray-50 text-gray-700`} value={header.team} data-testid="travel-team" />
           </Field>
           <Field label="Position" error={showErrors ? errors["header.position"] : undefined} width="w-full lg:w-56">
-            <input type="text" className={`${inputCls} w-full`} value={header.position} onChange={(e) => updateHeader("position", e.target.value)} data-testid="travel-position" />
+            <input type="text" readOnly className={`${inputCls} w-full bg-gray-50 text-gray-700`} value={header.position} data-testid="travel-position" />
           </Field>
           <Field label="Duty Station" error={showErrors ? errors["header.dutyStation"] : undefined} width="w-full lg:w-56">
-            <input type="text" className={`${inputCls} w-full`} value={header.dutyStation} onChange={(e) => updateHeader("dutyStation", e.target.value)} data-testid="travel-duty-station" />
+            <input type="text" readOnly className={`${inputCls} w-full bg-gray-50 text-gray-700`} value={header.dutyStation} data-testid="travel-duty-station" />
           </Field>
           <div className="flex w-full flex-col lg:w-44">
             <Field label="Exchange rate (MMK per USD)" error={showErrors ? errors["header.exchangeRate"] : undefined}>
