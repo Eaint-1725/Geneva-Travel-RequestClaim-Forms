@@ -7,7 +7,7 @@ export const TEAMS: string[] = [
 ];
 
 export const MODES_OF_TRAVEL: string[] = [
-  "Air", "Boat", "Coach", "Official Vehicle", "Private Vehicle", "Cycle Taxi", "Train", "Rented vehicle",
+  "-", "Air", "Boat", "Coach", "Official Vehicle", "Private Vehicle", "Cycle Taxi", "Train", "Rented vehicle",
 ];
 
 export interface Deduction {
@@ -131,4 +131,18 @@ export function dailyRate(areaName: string): number {
   const area = findArea(areaName);
   if (!area) return 0;
   return area.perdiemUsd * (1 - area.hotelComponent) * 0.9;
+}
+
+// Areas whose name contains one of these keywords pay the higher (25 USD) Terminal Allowance
+// rate per side; every other area (incl. "Elsewhere" and unselected) pays 10. "Heho" is kept here
+// even though it isn't yet a selectable Area -- it becomes active the moment it's added to AREAS.
+const TERMINAL_ALLOWANCE_25_KEYWORDS = ["Mandalay", "Heho", "Naypyitaw"];
+
+function terminalAllowanceForArea(area: string): number {
+  return TERMINAL_ALLOWANCE_25_KEYWORDS.some((k) => area.includes(k)) ? 25 : 10;
+}
+
+/** Terminal Allowance (USD) for an Air trip row = amount(From Area) + amount(To Area). */
+export function calcTerminalAllowanceUsd(fromArea: string, toArea: string): number {
+  return terminalAllowanceForArea(fromArea) + terminalAllowanceForArea(toArea);
 }
