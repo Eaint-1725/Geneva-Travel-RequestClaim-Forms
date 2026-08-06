@@ -30,10 +30,9 @@ import {
   type OptionalDocKey,
 } from "@/lib/travel/claim/documents";
 import { formatDateLong, formatMmk, formatUsd } from "@/lib/travel/format";
+import { TEAMS } from "@/lib/travel/rates";
 import { makeEmptyTrip, type Row, type Signature, type SubmissionMeta, type Trip } from "@/lib/travel/types";
-import { TRAVELLERS, type Traveller } from "@/lib/travel/travellers";
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
-import TravellerCombobox from "@/components/travel/TravellerCombobox";
 import ClaimTripBlock from "./ClaimTripBlock";
 import ClaimDocumentField from "./ClaimDocumentField";
 import DocScanPanel from "./DocScanPanel";
@@ -215,20 +214,6 @@ export default function TravelClaimPage() {
   function updateHeader<K extends keyof TravelClaimHeader>(field: K, value: TravelClaimHeader[K]) {
     setInteracted(true);
     setHeader((h) => ({ ...h, [field]: value }));
-  }
-
-  // Selecting a traveller (or clearing the selection) sets Name/Team/Position/Duty Station
-  // together in one update -- Team/Position/Duty Station are derived and read-only, same as the
-  // Travel Request form. header.team then drives the existing HIV/MAL/approver logic unchanged.
-  function selectTraveller(traveller: Traveller | null) {
-    setInteracted(true);
-    setHeader((h) => ({
-      ...h,
-      name: traveller?.name ?? "",
-      team: traveller?.team ?? "",
-      position: traveller?.position ?? "",
-      dutyStation: traveller?.dutyStation ?? "",
-    }));
   }
 
   function updateDocuments<K extends keyof ClaimDocuments>(field: K, files: ClaimDocuments[K]) {
@@ -489,17 +474,20 @@ export default function TravelClaimPage() {
               {formatDateLong(header.submissionDate)}
             </p>
           </Field>
-          <Field label="Name of traveller" error={showErrors ? errors["header.name"] : undefined} width="w-full lg:w-48">
-            <TravellerCombobox travellers={TRAVELLERS} value={header.name} onSelect={selectTraveller} testid="travel-claim-name" />
-          </Field>
           <Field label="Team" error={showErrors ? errors["header.team"] : undefined} width="w-full lg:w-32">
-            <input type="text" readOnly className={`${inputCls} w-full bg-gray-50 text-gray-700`} value={header.team} data-testid="travel-claim-team" />
+            <select className={`${inputCls} w-full`} value={header.team} onChange={(e) => updateHeader("team", e.target.value)} data-testid="travel-claim-team">
+              <option value="">— select —</option>
+              {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+          <Field label="Name of traveller" error={showErrors ? errors["header.name"] : undefined} width="w-full lg:w-48">
+            <input type="text" className={`${inputCls} w-full`} value={header.name} onChange={(e) => updateHeader("name", e.target.value)} data-testid="travel-claim-name" />
           </Field>
           <Field label="Position" error={showErrors ? errors["header.position"] : undefined} width="w-full lg:w-56">
-            <input type="text" readOnly className={`${inputCls} w-full bg-gray-50 text-gray-700`} value={header.position} data-testid="travel-claim-position" />
+            <input type="text" className={`${inputCls} w-full`} value={header.position} onChange={(e) => updateHeader("position", e.target.value)} data-testid="travel-claim-position" />
           </Field>
           <Field label="Duty Station" error={showErrors ? errors["header.dutyStation"] : undefined} width="w-full lg:w-56">
-            <input type="text" readOnly className={`${inputCls} w-full bg-gray-50 text-gray-700`} value={header.dutyStation} data-testid="travel-claim-duty-station" />
+            <input type="text" className={`${inputCls} w-full`} value={header.dutyStation} onChange={(e) => updateHeader("dutyStation", e.target.value)} data-testid="travel-claim-duty-station" />
           </Field>
           {header.team === "HIV" && (
             <Field

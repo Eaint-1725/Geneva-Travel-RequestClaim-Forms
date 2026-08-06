@@ -1,6 +1,5 @@
 import { rowFieldKey, validateRow } from "../validation";
 import type { UnRate } from "../un-rates";
-import { findTraveller } from "../travellers";
 import { resolveRowRate } from "./rate";
 import type { TravelClaimForm } from "./types";
 import { coverReportRequired } from "./documents";
@@ -27,11 +26,10 @@ export function validateClaimForm(form: TravelClaimForm, unRates: UnRate[]): Val
 
   if (!header.month) errors["header.month"] = "Month is required";
 
-  // Team/Position/Duty Station are derived from the selected traveller (same as Travel Request)
-  // -- they no longer get their own required checks; a single resolvable Name guarantees all
-  // three are populated.
+  if (!header.team) errors["header.team"] = "Team is required";
   if (!header.name.trim()) errors["header.name"] = "Name of traveller is required";
-  else if (!findTraveller(header.name)) errors["header.name"] = "Select a valid traveller from the list";
+  if (!header.position.trim()) errors["header.position"] = "Position is required";
+  if (!header.dutyStation.trim()) errors["header.dutyStation"] = "Duty Station is required";
 
   if (!header.email.trim()) errors["header.email"] = "Email is required";
   else if (!EMAIL_RE.test(header.email.trim())) errors["header.email"] = "Enter a valid email address";
