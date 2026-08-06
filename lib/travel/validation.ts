@@ -1,6 +1,5 @@
 import type { Row, TravelRequestForm } from "./types";
 import { formatDateLong, formatMonthLong } from "./format";
-import { findTraveller } from "./travellers";
 
 export interface ValidationResult {
   errors: Record<string, string>;
@@ -99,10 +98,10 @@ export function validateForm(form: TravelRequestForm): ValidationResult {
 
   if (!header.month) errors["header.month"] = "Month is required";
 
-  // Team/Position/Duty Station are derived from the selected traveller (Fix 2) -- they no longer
-  // get their own required checks; a single resolvable Name guarantees all three are populated.
+  if (!header.team) errors["header.team"] = "Team is required";
   if (!header.name.trim()) errors["header.name"] = "Name of traveller is required";
-  else if (!findTraveller(header.name)) errors["header.name"] = "Select a valid traveller from the list";
+  if (!header.position.trim()) errors["header.position"] = "Position is required";
+  if (!header.dutyStation.trim()) errors["header.dutyStation"] = "Duty Station is required";
 
   if (header.exchangeRate === null) errors["header.exchangeRate"] = "Exchange rate is required";
   else if (header.exchangeRate <= 0) errors["header.exchangeRate"] = "Exchange rate must be greater than 0";
