@@ -18,15 +18,15 @@ export function calcRow(row: Row, exchangeRate: number): RowCalc {
   const deduction = findDeduction(row.deduction);
   const factor = deduction?.factor ?? 0;
 
-  let perDiemUsd: number;
+  let basePerDiemUsd: number;
   if (row.deduction === "Full deduction (100%)") {
-    perDiemUsd = 0;
+    basePerDiemUsd = 0;
   } else if (row.deduction === "day >10 hrs travel (Non-HC)" || row.deduction === "overnight - outbound (50% destination)") {
-    perDiemUsd = dailyRate(row.toArea);
+    basePerDiemUsd = dailyRate(row.toArea);
   } else if (row.deduction === "overnight - inbound (50% origin)") {
-    perDiemUsd = dailyRate(row.fromArea);
+    basePerDiemUsd = dailyRate(row.fromArea);
   } else {
-    perDiemUsd = dailyRate(row.toArea) * days * factor;
+    basePerDiemUsd = dailyRate(row.toArea) * days * factor;
   }
 
   const travelHotel = row.travelHotelMmk ?? 0;
@@ -34,7 +34,14 @@ export function calcRow(row: Row, exchangeRate: number): RowCalc {
   const terminal = row.terminalAllowanceUsd ?? 0;
 
   // Total Amount (MMK) = (Per-diem x rate) + (Terminal allowance x rate) + Travel/Hotel + Air Ticket
-  const amountMmk = perDiemUsd * exchangeRate + terminal * exchangeRate + travelHotel + airTicket;
+  // -- computed from basePerDiemUsd (not the terminal-inclusive perDiemUsd below), since terminal
+  // is already added in here via its own `terminal * exchangeRate` term; adding it again from an
+  // already-combined perDiemUsd would double-count it on the MMK side.
+  const amountMmk = basePerDiemUsd * exchangeRate + terminal * exchangeRate + travelHotel + airTicket;
+
+  // Total Per-diem (USD) = base per-diem + Terminal Allowance (USD), added exactly once here.
+  // Terminal Allowance is 0/null for non-Air rows, so this is a no-op for them.
+  const perDiemUsd = basePerDiemUsd + terminal;
 
   return { perDiemUsd, amountMmk };
 }
