@@ -21,3 +21,32 @@ export function buildSubmissionEmailSubject(label: string, isUpdated: boolean): 
 export function buildSubmissionFileName(label: string, isUpdated: boolean): string {
   return `${label}${isUpdated ? " (Updated)" : ""}.xlsx`;
 }
+
+export interface ParsedSubmissionFileName {
+  team: string;
+  name: string;
+  docType: SubmissionDocType;
+  submissionNumber: number;
+  /** Whether the FILE ITSELF was exported as an "(Updated)" copy -- informational only. A
+   * re-imported file is always treated as an update going forward regardless of this flag; see
+   * the import route/page for why (importing an already-generated submission is inherently an
+   * update to it, keeping the same submission number). */
+  wasUpdated: boolean;
+}
+
+// Mirrors buildSubmissionLabel/buildSubmissionFileName's own format exactly -- this is the
+// single place that must stay in lockstep with those builders, in both directions.
+const SUBMISSION_FILENAME_RE = /^(.+) - (.+) - (TR|TC) - .+ - Submission (\d{1,2})( \(Updated\))?\.xlsx$/;
+
+/** Parses a system-generated submission filename, or returns null if it doesn't match the exact
+ * format buildSubmissionFileName produces. `expectedDocType` rejects a right-shaped filename for
+ * the wrong flow (e.g. a Travel Claim file uploaded to Travel Request's importer). */
+export function parseSubmissionFileName(fileName: string, expectedDocType: SubmissionDocType): ParsedSubmissionFileName | null {
+  const match = SUBMISSION_FILENAME_RE.exec(fileName);
+  if (!match) return null;
+  const [, team, name, docType, numStr, updatedSuffix] = match;
+  if (docType !== expectedDocType) return null;
+  const submissionNumber = Number(numStr);
+  if (!Number.isInteger(submissionNumber) || submissionNumber < 1) return null;
+  return { team, name, docType, submissionNumber, wasUpdated: Boolean(updatedSuffix) };
+}

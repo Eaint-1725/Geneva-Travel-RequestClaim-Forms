@@ -1,7 +1,8 @@
 import ExcelJS from "exceljs";
 import { calcRow, calcGrandTotal, composeTravellerCapacity, type GrandTotal } from "./calc";
 import { getApproverBlock } from "./approvers";
-import type { Row, TravelRequestForm } from "./types";
+import { embedJsonSheet } from "./excel-embed";
+import type { Row, TravelRequestForm, TravelRequestImportPayload } from "./types";
 
 const COLS = 19; // A..S
 const MANUAL_FILL = "FFF2DCDB"; // Accent2 Lighter 80% -- manual entry
@@ -351,6 +352,23 @@ export async function buildTravelRequestWorkbook(form: TravelRequestForm): Promi
   // to fit vertically. Title/month/header rows (1:3) repeat on every printed page. Baked into
   // the saved .xlsx so Ctrl+P is correct without the user touching print settings.
   const lastRow = row;
+
+  // Embed the exact form data this Excel was generated from -- see lib/travel/excel-embed.ts.
+  // Only Excels generated from this point on carry it; a re-import of an older file falls back
+  // to the "no embedded data" error in app/api/travel/import/route.ts.
+  const importPayload: TravelRequestImportPayload = {
+    header: {
+      month: form.header.month,
+      team: form.header.team,
+      name: form.header.name,
+      position: form.header.position,
+      dutyStation: form.header.dutyStation,
+      notes: form.header.notes,
+    },
+    trips: form.trips,
+  };
+  embedJsonSheet(wb, importPayload);
+
   ws.pageSetup.orientation = "landscape";
   ws.pageSetup.paperSize = 9; // A4
   ws.pageSetup.fitToPage = true;

@@ -12,6 +12,7 @@ import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from 
 import { validateForm } from "@/lib/travel/validation";
 import ApprovalAttachmentsField from "@/components/travel/ApprovalAttachmentsField";
 import Field from "@/components/travel/Field";
+import ImportExcelDialog, { type ImportedRequestData } from "@/components/travel/ImportExcelDialog";
 import SignaturePad from "@/components/travel/SignaturePad";
 import SubmitNoteDialog, { isSubmitNoteValid } from "@/components/travel/SubmitNoteDialog";
 import TripBlock from "./TripBlock";
@@ -58,6 +59,11 @@ export default function TravelRequestPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitMeta, setSubmitMeta] = useState<SubmissionMeta>(makeEmptySubmitMeta());
+
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  // Set once a "Import Excel" upload succeeds -- drives the "Imported from ..." banner and locks
+  // the confirm dialog's Submission type to Updated (see handleImported/SubmitNoteDialog).
+  const [importedFileName, setImportedFileName] = useState<string | null>(null);
 
   const [unRates, setUnRates] = useState<UnRate[]>([]);
   const [rateError, setRateError] = useState<string | null>(null);
@@ -139,9 +145,33 @@ export default function TravelRequestPage() {
     setTrips([makeEmptyTrip()]);
     setSignature(null);
     setAttachments([]);
+    setImportedFileName(null);
     setInteracted(false);
     setApiError(null);
     setNotice(null);
+  }
+
+  // Populates the form from a re-imported system-generated Excel (see ImportExcelDialog). Only
+  // the fields the spec calls out get overwritten -- signature/email/attachments are left exactly
+  // as they were, since the user redoes those regardless of what's imported. An imported
+  // submission is inherently a re-submission of the one that generated the file, so Submission
+  // type is forced to Updated at the SAME number the file was ("Submission 2" stays 2, not 3) --
+  // see SubmitNoteDialog's lockedToUpdated prop for where "New" gets disabled.
+  function handleImported(result: ImportedRequestData, fileName: string) {
+    setHeader((h) => ({
+      ...h,
+      month: result.header.month,
+      team: result.header.team,
+      name: result.header.name,
+      position: result.header.position,
+      dutyStation: result.header.dutyStation,
+      notes: result.header.notes,
+    }));
+    setTrips(result.trips.length > 0 ? result.trips : [makeEmptyTrip()]);
+    setSubmitMeta({ type: "updated", number: result.submissionNumber, note: "" });
+    setImportedFileName(fileName);
+    setInteracted(true);
+    setImportDialogOpen(false);
   }
 
   function handleSubmitClick() {
@@ -219,7 +249,22 @@ export default function TravelRequestPage() {
       )}
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5" data-testid="travel-header-card">
-        <h2 className="mb-2 text-sm font-semibold text-navy-900">Request details</h2>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-navy-900">Request details</h2>
+          <button
+            type="button"
+            onClick={() => setImportDialogOpen(true)}
+            className="rounded border border-primary px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary-light/30"
+            data-testid="travel-import-btn"
+          >
+            Import Excel
+          </button>
+        </div>
+        {importedFileName && (
+          <p className="mb-2 rounded bg-primary-light/30 px-3 py-1.5 text-xs text-navy-900" data-testid="travel-imported-notice">
+            Imported from {importedFileName} — this will be submitted as an Update.
+          </p>
+        )}
         <div className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-3 md:gap-y-3 lg:flex lg:flex-row lg:flex-wrap lg:items-start lg:gap-2">
           <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-full lg:w-36">
             <input type="month" className={`${inputCls} w-full`} value={header.month} onChange={(e) => updateHeader("month", e.target.value)} data-testid="travel-month" />
@@ -378,6 +423,13 @@ export default function TravelRequestPage() {
         onCancel={handleCancelDialog}
         onConfirm={() => void handleConfirmSend()}
         busy={busy}
+        lockedToUpdated={importedFileName !== null}
+      />
+
+      <ImportExcelDialog
+        open={importDialogOpen}
+        onCancel={() => setImportDialogOpen(false)}
+        onImported={handleImported}
       />
     </div>
   );

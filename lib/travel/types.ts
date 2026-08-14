@@ -61,6 +61,15 @@ export interface TravelRequestForm {
   attachments: UploadedFile[];
 }
 
+/** Embedded into every generated Travel Request .xlsx (see lib/travel/excel-embed.ts) and read
+ * back by the "Import Excel" flow (see app/api/travel/import/route.ts) to auto-fill a
+ * re-submission. Deliberately excludes Signature/email/attachments/submissionDate/exchangeRate --
+ * those are never re-imported (redone by the user, or server-derived at submit time). */
+export interface TravelRequestImportPayload {
+  header: Pick<TravelRequestHeader, "month" | "team" | "name" | "position" | "dutyStation" | "notes">;
+  trips: Trip[];
+}
+
 /** Whether this submission is brand new or replaces one HR already received -- drives the
  * "[UPDATED]" subject prefix and the note block in the email body (see lib/email builders). */
 export type SubmissionType = "new" | "updated";
