@@ -106,10 +106,14 @@ export function validateForm(form: TravelRequestForm): ValidationResult {
   if (header.exchangeRate === null) errors["header.exchangeRate"] = "Exchange rate is required";
   else if (header.exchangeRate <= 0) errors["header.exchangeRate"] = "Exchange rate must be greater than 0";
 
-  if (header.team === "MAL" && !header.notes.trim()) errors["header.notes"] = "Notes is required";
+  if ((header.team === "MAL" || header.team === "HIV") && !header.notes.trim()) errors["header.notes"] = "Notes is required";
 
   if (!header.email.trim()) errors["header.email"] = "Email is required";
   else if (!EMAIL_RE.test(header.email.trim())) errors["header.email"] = "Enter a valid email address";
+
+  if (form.attachments.length === 0) {
+    errors["attachments"] = "Approval Attachments are required — upload at least one file";
+  }
 
   if (trips.length === 0) {
     errors["trips"] = "Add at least one trip";

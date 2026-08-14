@@ -106,14 +106,15 @@ export async function sendGraphEmail(params: SendGraphEmailParams): Promise<void
   }
 }
 
-// --- Multi-attachment send (Travel Claim) -----------------------------------------------
+// --- Multi-attachment send (Travel Claim + Travel Request) -------------------------------
 //
-// sendGraphEmail above is untouched and stays the request's exact code path. Travel Claim
-// needs to attach the claim Excel plus several uploaded documents, and Graph's one-shot
-// sendMail only reliably takes attachments under ~3MB inline as base64 in the same request --
-// anything larger needs its own upload session, which requires an existing message. So this
-// creates a draft message, attaches each file (small ones in one call, large ones via a
-// chunked upload session), then sends the draft. New exports only -- nothing above changes.
+// sendGraphEmail above is untouched and stays the single-attachment code path. Both Travel
+// Claim (claim Excel + several uploaded documents) and Travel Request (request Excel + Approval
+// Attachments) need to send more than one attachment, and Graph's one-shot sendMail only
+// reliably takes attachments under ~3MB inline as base64 in the same request -- anything larger
+// needs its own upload session, which requires an existing message. So this creates a draft
+// message, attaches each file (small ones in one call, large ones via a chunked upload
+// session), then sends the draft. New exports only -- nothing above changes.
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 const SIMPLE_ATTACHMENT_MAX_BYTES = 3 * 1024 * 1024; // Graph: attachments >= this need an upload session

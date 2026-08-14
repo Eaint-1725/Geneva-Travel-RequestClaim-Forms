@@ -40,6 +40,7 @@ export default function SubmitNoteDialog({
   onConfirm,
   busy,
   kind = "request",
+  lockedToUpdated,
 }: {
   open: boolean;
   meta: SubmissionMeta;
@@ -48,6 +49,9 @@ export default function SubmitNoteDialog({
   onConfirm: () => void;
   busy: boolean;
   kind?: "request" | "claim";
+  /** Set when the form was populated via Import Excel -- an imported submission is inherently a
+   * re-submission of an existing one, so "New" is disabled rather than just defaulted. */
+  lockedToUpdated?: boolean;
 }) {
   if (!open) return null;
 
@@ -69,27 +73,36 @@ export default function SubmitNoteDialog({
 
         <fieldset className="mb-3 flex flex-col gap-2">
           <legend className="mb-0.5 block text-[11px] text-gray-500">Submission type</legend>
-          {options.map((opt) => (
-            <label
-              key={opt.value}
-              className={`flex cursor-pointer items-start gap-2 rounded border px-3 py-2 text-sm ${
-                meta.type === opt.value ? "border-primary bg-primary-light/30" : "border-gray-300"
-              }`}
-            >
-              <input
-                type="radio"
-                name="submission-type"
-                className="mt-0.5"
-                checked={meta.type === opt.value}
-                onChange={() => onChange({ ...meta, type: opt.value })}
-                data-testid={`travel-submit-dialog-type-${opt.value}`}
-              />
-              <span>
-                <span className="block font-medium text-navy-900">{opt.label}</span>
-                {opt.hint && <span className="block text-[11px] text-gray-500">{opt.hint}</span>}
-              </span>
-            </label>
-          ))}
+          {options.map((opt) => {
+            const disabled = lockedToUpdated && opt.value === "new";
+            return (
+              <label
+                key={opt.value}
+                className={`flex items-start gap-2 rounded border px-3 py-2 text-sm ${
+                  disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+                } ${meta.type === opt.value ? "border-primary bg-primary-light/30" : "border-gray-300"}`}
+              >
+                <input
+                  type="radio"
+                  name="submission-type"
+                  className="mt-0.5"
+                  checked={meta.type === opt.value}
+                  disabled={disabled}
+                  onChange={() => onChange({ ...meta, type: opt.value })}
+                  data-testid={`travel-submit-dialog-type-${opt.value}`}
+                />
+                <span>
+                  <span className="block font-medium text-navy-900">{opt.label}</span>
+                  {opt.hint && <span className="block text-[11px] text-gray-500">{opt.hint}</span>}
+                </span>
+              </label>
+            );
+          })}
+          {lockedToUpdated && (
+            <p className="text-[11px] text-gray-500" data-testid="travel-submit-dialog-locked-note">
+              Imported from an existing submission — this must be sent as an update.
+            </p>
+          )}
         </fieldset>
 
         <label className="mb-3 block text-sm">

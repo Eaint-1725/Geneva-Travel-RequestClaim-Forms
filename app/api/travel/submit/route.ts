@@ -1,23 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
+import { get } from "@vercel/blob";
 import { buildTravelRequestWorkbook } from "@/lib/travel/export-workbook";
 import { validateForm } from "@/lib/travel/validation";
 import { addSubmission } from "@/lib/portal/submissions";
-import { sendGraphEmail } from "@/lib/email/graph";
+import { sendGraphEmailWithAttachments, type GraphEmailAttachmentBuffer } from "@/lib/email/graph";
 import { formatMmk, ordinal, todayIso } from "@/lib/travel/format";
 import { buildSubmissionEmailSubject, buildSubmissionFileName, buildSubmissionLabel } from "@/lib/travel/submission-naming";
+import { MAX_TOTAL_ATTACH_BYTES } from "@/lib/travel/request-uploads";
+import { deleteRequestUploadBlobs } from "@/lib/travel/request-uploads-cleanup";
 import {
   SUBMISSION_NOTE_MAX_LENGTH,
   SUBMISSION_NUMBER_MAX,
   SUBMISSION_NUMBER_MIN,
   type SubmissionMeta,
   type TravelRequestForm,
+  type UploadedFile,
 } from "@/lib/travel/types";
 
 export const runtime = "nodejs";
-// Token fetch + Graph sendMail + Excel build can run close to Vercel's default 10s function
-// limit; the Excel is built before the send anyway (it's the attachment), so this budget mainly
-// covers network latency to Graph, not a slow step after the email is already sent.
-export const maxDuration = 30;
+// Excel build + several Blob fetches + Graph draft/attach(es)/send can run well past Vercel's
+// default 10s limit, especially with multiple large attachments -- raise the budget accordingly
+// (matches app/api/travel/claim/submit/route.ts).
+export const maxDuration = 60;
 
 const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -51,8 +55,15 @@ function buildNoteBlockLines(meta: SubmissionMeta): string[] {
   return [];
 }
 
-function buildEmailBody(form: TravelRequestForm, meta: SubmissionMeta, grandTotalMmk: number): string {
-  return [
+function buildEmailBody(
+  form: TravelRequestForm,
+  meta: SubmissionMeta,
+  grandTotalMmk: number,
+  fileName: string,
+  attached: UploadedFile[],
+  linked: UploadedFile[],
+): string {
+  const lines = [
     ...buildNoteBlockLines(meta),
     `Traveller: ${form.header.name}`,
     `Position (Duty Station): ${form.header.position} (${form.header.dutyStation})`,
@@ -62,8 +73,19 @@ function buildEmailBody(form: TravelRequestForm, meta: SubmissionMeta, grandTota
     `Submission: ${ordinal(meta.number as number)} (${meta.type === "updated" ? "Updated" : "New"})`,
     `Grand total: ${formatMmk(grandTotalMmk)} MMK`,
     "",
-    `The completed travel request Excel is attached. Replies to this email go directly to the traveller (${form.header.email}).`,
-  ].join("\n");
+    `The completed travel request Excel and Approval Attachments are attached. Replies to this email go directly to the traveller (${form.header.email}).`,
+    "",
+    "Attached documents:",
+    `- Travel Request: ${fileName}`,
+    ...attached.map((f) => `- Approval Attachment: ${f.name}`),
+  ];
+
+  if (linked.length > 0) {
+    lines.push("", "Additional Approval Attachments (sent as secure links -- combined size was over the email attachment limit):");
+    for (const f of linked) lines.push(`- ${f.name} — ${f.url}`);
+  }
+
+  return lines.join("\n");
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -115,21 +137,61 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const recipients = travellerEmail ? [hrRecipient, travellerEmail] : [hrRecipient];
 
+  // Excel is always attached -- it's the primary deliverable, not optional. Approval Attachments
+  // attach while the running total (Excel + files already queued) stays within the 20MB email
+  // budget; once a file wouldn't fit, that file and everything after it is linked instead.
+  // Mirrors app/api/travel/claim/submit/route.ts.
+  let runningBytes = buffer.byteLength;
+  const attached: UploadedFile[] = [];
+  const linked: UploadedFile[] = [];
+  for (const file of form.attachments) {
+    if (runningBytes + file.size <= MAX_TOTAL_ATTACH_BYTES) {
+      attached.push(file);
+      runningBytes += file.size;
+    } else {
+      linked.push(file);
+    }
+  }
+
+  let attachments: GraphEmailAttachmentBuffer[];
   try {
-    await sendGraphEmail({
+    const fetchedFiles = await Promise.all(
+      attached.map(async (file) => {
+        // Blobs are private -- a plain fetch(url) isn't authenticated and would 403. get()
+        // reads them server-side using BLOB_READ_WRITE_TOKEN instead.
+        const result = await get(file.url, { access: "private" });
+        if (!result || result.statusCode !== 200) {
+          throw new Error(`Fetching "${file.name}" from Blob failed`);
+        }
+        const arrayBuffer = await new Response(result.stream).arrayBuffer();
+        return {
+          name: file.name,
+          contentType: file.contentType || "application/octet-stream",
+          content: Buffer.from(arrayBuffer),
+        };
+      }),
+    );
+    const excelAttachment: GraphEmailAttachmentBuffer = { name: fileName, contentType: XLSX_CONTENT_TYPE, content: buffer };
+    attachments = [excelAttachment, ...fetchedFiles];
+    console.log(`[travel-submit] step=fetchBlobs ok count=${fetchedFiles.length}`);
+  } catch (e) {
+    console.error("[travel-submit] step=fetchBlobs error", e);
+    return NextResponse.json({ error: "Couldn't prepare the uploaded attachments — please try again" }, { status: 502 });
+  }
+
+  try {
+    await sendGraphEmailWithAttachments({
       to: recipients,
       replyTo: form.header.email,
       subject,
-      bodyText: buildEmailBody(form, meta, grandTotal.totalAmountMmk),
-      attachment: {
-        name: fileName,
-        contentType: XLSX_CONTENT_TYPE,
-        contentBytes: buffer.toString("base64"),
-      },
+      bodyText: buildEmailBody(form, meta, grandTotal.totalAmountMmk, fileName, attached, linked),
+      attachments,
     });
     console.log("[travel-submit] step=sendMail ok");
   } catch (e) {
     console.error("[travel-submit] step=sendMail error", e);
+    // ORDERING: the email did not go out -- keep every attachment blob so the user can retry
+    // without re-uploading. Cleanup below must only ever run after this point, never before it.
     return NextResponse.json({ error: "Couldn't email HR — please try again" }, { status: 502 });
   }
 
@@ -150,6 +212,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log("[travel-submit] step=addSubmission ok");
   } catch (e) {
     console.error("[travel-submit] step=addSubmission error (non-fatal, email already sent)", e);
+  }
+
+  // Blob is a STAGING area only, between upload and submission -- these are HR approval
+  // attachments and shouldn't persist in storage once safely emailed. Delete exactly this
+  // submission's own attachment URLs -- see deleteRequestUploadBlobs's own comment for why this
+  // must never become a request-uploads/ prefix sweep (other travellers may be uploading
+  // concurrently under that same prefix). A failed cleanup is never shown to the user -- the
+  // submission already succeeded -- it's only logged server-side.
+  try {
+    const deleted = await deleteRequestUploadBlobs(form.attachments.map((f) => f.url));
+    console.log(`[travel-submit] step=cleanupBlobs ok deleted=${deleted.length}/${form.attachments.length}`);
+  } catch (e) {
+    console.error("[travel-submit] step=cleanupBlobs error (non-fatal, email already sent)", e);
   }
 
   // Same buffer that was just attached to the HR email -- returned here so the traveller's own

@@ -6,7 +6,7 @@ export interface TravelRequestHeader {
   position: string;
   dutyStation: string;
   exchangeRate: number | null;
-  /** Free-text notes, only shown in the UI and exported to Excel when team === "MAL". */
+  /** Free-text notes, only shown in the UI and exported to Excel when team is "MAL" or "HIV". */
   notes: string;
   /** Traveller's own email (personal Gmail expected) — used as Reply-To on the HR notification. */
   email: string;
@@ -41,10 +41,33 @@ export interface Signature {
   fileName?: string;
 }
 
+/** One file already uploaded to Vercel Blob -- the form only ever holds the resulting metadata/URL,
+ * never raw bytes. Shared shape for any Travel-Request upload field (currently just Approval
+ * Attachments; see lib/travel/request-uploads.ts for the upload/delete pipeline). */
+export interface UploadedFile {
+  url: string;
+  pathname: string;
+  name: string;
+  size: number;
+  contentType: string;
+}
+
 export interface TravelRequestForm {
   header: TravelRequestHeader;
   trips: Trip[];
   signature: Signature | null;
+  /** Approval Attachments -- required, at least one file, any type. Attached to the HR email
+   * alongside the Excel on submit; see app/api/travel/submit/route.ts. */
+  attachments: UploadedFile[];
+}
+
+/** Embedded into every generated Travel Request .xlsx (see lib/travel/excel-embed.ts) and read
+ * back by the "Import Excel" flow (see app/api/travel/import/route.ts) to auto-fill a
+ * re-submission. Deliberately excludes Signature/email/attachments/submissionDate/exchangeRate --
+ * those are never re-imported (redone by the user, or server-derived at submit time). */
+export interface TravelRequestImportPayload {
+  header: Pick<TravelRequestHeader, "month" | "team" | "name" | "position" | "dutyStation" | "notes">;
+  trips: Trip[];
 }
 
 /** Whether this submission is brand new or replaces one HR already received -- drives the

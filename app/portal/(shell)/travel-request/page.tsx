@@ -7,10 +7,12 @@ import { calcGrandTotal } from "@/lib/travel/calc";
 import { REQUEST_EXCEL_STORAGE_KEY, downloadRequestExcel, type StoredRequestExcel } from "@/lib/travel/excel-download";
 import { formatDateLong, formatMmk, formatUsd, todayIso } from "@/lib/travel/format";
 import { TEAMS } from "@/lib/travel/rates";
-import { makeEmptyTrip, type Signature, type SubmissionMeta, type Trip, type TravelRequestForm } from "@/lib/travel/types";
+import { makeEmptyTrip, type Signature, type SubmissionMeta, type Trip, type TravelRequestForm, type UploadedFile } from "@/lib/travel/types";
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
 import { validateForm } from "@/lib/travel/validation";
+import ApprovalAttachmentsField from "@/components/travel/ApprovalAttachmentsField";
 import Field from "@/components/travel/Field";
+import ImportExcelDialog, { type ImportedRequestData } from "@/components/travel/ImportExcelDialog";
 import SignaturePad from "@/components/travel/SignaturePad";
 import SubmitNoteDialog, { isSubmitNoteValid } from "@/components/travel/SubmitNoteDialog";
 import TripBlock from "./TripBlock";
@@ -42,6 +44,10 @@ export default function TravelRequestPage() {
   const [header, setHeader] = useState<TravelRequestForm["header"]>(makeEmptyHeader());
   const [trips, setTrips] = useState<Trip[]>([makeEmptyTrip()]);
   const [signature, setSignature] = useState<Signature | null>(null);
+  const [attachments, setAttachments] = useState<UploadedFile[]>([]);
+  // Tracks in-flight Approval Attachment uploads so Submit stays disabled until every upload
+  // has resolved -- otherwise a fast click could submit before a file's URL lands in state.
+  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
 
   // Submit is gated purely on live validity (spec §4). "interacted" just controls when
   // per-field errors start showing -- otherwise a brand-new blank form would greet the
@@ -54,12 +60,17 @@ export default function TravelRequestPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitMeta, setSubmitMeta] = useState<SubmissionMeta>(makeEmptySubmitMeta());
 
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  // Set once a "Import Excel" upload succeeds -- drives the "Imported from ..." banner and locks
+  // the confirm dialog's Submission type to Updated (see handleImported/SubmitNoteDialog).
+  const [importedFileName, setImportedFileName] = useState<string | null>(null);
+
   const [unRates, setUnRates] = useState<UnRate[]>([]);
   const [rateError, setRateError] = useState<string | null>(null);
   const [rateRefreshing, setRateRefreshing] = useState(false);
 
-  const form: TravelRequestForm = { header, trips, signature };
-  const { errors, isValid } = useMemo(() => validateForm(form), [header, trips, signature]);
+  const form: TravelRequestForm = { header, trips, signature, attachments };
+  const { errors, isValid } = useMemo(() => validateForm(form), [header, trips, signature, attachments]);
   const showErrors = interacted;
 
   const exchangeRate = header.exchangeRate ?? 0;
@@ -122,15 +133,45 @@ export default function TravelRequestPage() {
     setSignature(next);
   }
 
+  function updateAttachments(next: UploadedFile[]) {
+    setInteracted(true);
+    setAttachments(next);
+  }
+
   function handleClear() {
     if (!window.confirm("Clear the entire form? This can't be undone.")) return;
     const rate = latestRate(unRates);
     setHeader({ ...makeEmptyHeader(), exchangeRate: rate?.rate ?? null });
     setTrips([makeEmptyTrip()]);
     setSignature(null);
+    setAttachments([]);
+    setImportedFileName(null);
     setInteracted(false);
     setApiError(null);
     setNotice(null);
+  }
+
+  // Populates the form from a re-imported system-generated Excel (see ImportExcelDialog). Only
+  // the fields the spec calls out get overwritten -- signature/email/attachments are left exactly
+  // as they were, since the user redoes those regardless of what's imported. An imported
+  // submission is inherently a re-submission of the one that generated the file, so Submission
+  // type is forced to Updated at the SAME number the file was ("Submission 2" stays 2, not 3) --
+  // see SubmitNoteDialog's lockedToUpdated prop for where "New" gets disabled.
+  function handleImported(result: ImportedRequestData, fileName: string) {
+    setHeader((h) => ({
+      ...h,
+      month: result.header.month,
+      team: result.header.team,
+      name: result.header.name,
+      position: result.header.position,
+      dutyStation: result.header.dutyStation,
+      notes: result.header.notes,
+    }));
+    setTrips(result.trips.length > 0 ? result.trips : [makeEmptyTrip()]);
+    setSubmitMeta({ type: "updated", number: result.submissionNumber, note: "" });
+    setImportedFileName(fileName);
+    setInteracted(true);
+    setImportDialogOpen(false);
   }
 
   function handleSubmitClick() {
@@ -138,7 +179,7 @@ export default function TravelRequestPage() {
     setNotice(null);
     // Keep the existing validation gate first -- the dialog only opens once the form itself
     // is valid; it must never become a way to bypass required-field checks.
-    if (!isValid) return;
+    if (!isValid || attachmentsUploading) return;
     setDialogOpen(true);
   }
 
@@ -208,7 +249,22 @@ export default function TravelRequestPage() {
       )}
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5" data-testid="travel-header-card">
-        <h2 className="mb-2 text-sm font-semibold text-navy-900">Request details</h2>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-navy-900">Request details</h2>
+          <button
+            type="button"
+            onClick={() => setImportDialogOpen(true)}
+            className="rounded border border-primary px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary-light/30"
+            data-testid="travel-import-btn"
+          >
+            Import Excel
+          </button>
+        </div>
+        {importedFileName && (
+          <p className="mb-2 rounded bg-primary-light/30 px-3 py-1.5 text-xs text-navy-900" data-testid="travel-imported-notice">
+            Imported from {importedFileName} — this will be submitted as an Update.
+          </p>
+        )}
         <div className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-3 md:gap-y-3 lg:flex lg:flex-row lg:flex-wrap lg:items-start lg:gap-2">
           <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-full lg:w-36">
             <input type="month" className={`${inputCls} w-full`} value={header.month} onChange={(e) => updateHeader("month", e.target.value)} data-testid="travel-month" />
@@ -258,7 +314,7 @@ export default function TravelRequestPage() {
           </div>
         </div>
 
-        {header.team === "MAL" && (
+        {(header.team === "MAL" || header.team === "HIV") && (
           <div className="mt-3">
             <Field label="Notes" error={showErrors ? errors["header.notes"] : undefined} width="w-full">
               <textarea
@@ -335,18 +391,29 @@ export default function TravelRequestPage() {
             Your own email (personal Gmail is fine) — HR will reply to your travel request here.
           </p>
         </div>
+
+        <div className="mt-3">
+          <ApprovalAttachmentsField
+            files={attachments}
+            onChange={updateAttachments}
+            error={showErrors ? errors["attachments"] : undefined}
+            disabled={busy}
+            onUploadingChange={setAttachmentsUploading}
+          />
+        </div>
       </div>
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-          <Button type="button" variant="primary" onClick={handleSubmitClick} disabled={busy || !isValid} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-submit-btn">
-            {busy ? "Sending…" : "Submit travel request"}
+          <Button type="button" variant="primary" onClick={handleSubmitClick} disabled={busy || !isValid || attachmentsUploading} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-submit-btn">
+            {busy ? "Sending…" : attachmentsUploading ? "Uploading…" : "Submit travel request"}
           </Button>
           <Button type="button" variant="secondary" onClick={handleClear} disabled={busy} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-clear-btn">
             Clear
           </Button>
         </div>
         {!isValid && <p className="mt-1 text-xs text-gray-400">Fill in every required field above to enable submit.</p>}
+        {isValid && attachmentsUploading && <p className="mt-1 text-xs text-gray-400">Waiting for uploads to finish…</p>}
       </div>
 
       <SubmitNoteDialog
@@ -356,6 +423,13 @@ export default function TravelRequestPage() {
         onCancel={handleCancelDialog}
         onConfirm={() => void handleConfirmSend()}
         busy={busy}
+        lockedToUpdated={importedFileName !== null}
+      />
+
+      <ImportExcelDialog
+        open={importDialogOpen}
+        onCancel={() => setImportDialogOpen(false)}
+        onImported={handleImported}
       />
     </div>
   );
