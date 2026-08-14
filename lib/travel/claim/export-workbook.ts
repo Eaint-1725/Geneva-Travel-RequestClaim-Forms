@@ -1,11 +1,12 @@
 import ExcelJS from "exceljs";
 import { calcRow, composeTravellerCapacity } from "../calc";
 import { getApproverBlock } from "../approvers";
+import { embedJsonSheet } from "../excel-embed";
 import type { Row } from "../types";
 import type { UnRate } from "../un-rates";
 import { calcClaimTrip, calcClaimGrandTotal, type ClaimGrandTotal } from "./calc";
 import { resolveRowRate } from "./rate";
-import type { TravelClaimForm } from "./types";
+import type { TravelClaimForm, TravelClaimImportPayload } from "./types";
 
 // Same line-by-line workbook layout as lib/travel/export-workbook.ts (request), duplicated
 // rather than shared: the two exports are already expected to diverge further (actual-vs-
@@ -297,13 +298,13 @@ export async function buildTravelClaimWorkbook(form: TravelClaimForm, unRates: U
     cell.border = THIN_BORDER;
   }
 
-  // Notes block (MAL team only) -- one merged, wrapped row per line, centered under
+  // Notes block (MAL or HIV team only) -- one merged, wrapped row per line, centered under
   // columns F:K, so long lines never spill into other cells.
   const NOTES_START_COL = 6;
   const NOTES_END_COL = 11;
   const NOTES_MERGED_WIDTH_CHARS = 90; // approx chars that fit across the merged F:K span
   const DEFAULT_ROW_HEIGHT = 15;
-  if (form.header.team === "MAL" && form.header.notes.trim() !== "") {
+  if ((form.header.team === "MAL" || form.header.team === "HIV") && form.header.notes.trim() !== "") {
     row = grandRow + 1; // immediately below the Grand Total row, no gap
     for (const line of form.header.notes.split(/\r?\n/)) {
       ws.mergeCells(row, NOTES_START_COL, row, NOTES_END_COL);
@@ -358,6 +359,40 @@ export async function buildTravelClaimWorkbook(form: TravelClaimForm, unRates: U
   signedDateCell.value = parseDate(form.header.submissionDate);
   signedDateCell.numFmt = "d-mmm-yy";
   signedDateCell.alignment = { horizontal: "left" };
+
+  const lastRow = row;
+
+  // Embed the exact form data this Excel was generated from -- see lib/travel/excel-embed.ts.
+  // Only Excels generated from this point on carry it; a re-import of an older file falls back
+  // to the "no embedded data" error in app/api/travel/claim/import/route.ts.
+  const importPayload: TravelClaimImportPayload = {
+    header: {
+      month: form.header.month,
+      team: form.header.team,
+      name: form.header.name,
+      position: form.header.position,
+      dutyStation: form.header.dutyStation,
+      notes: form.header.notes,
+      travelArea: form.header.travelArea,
+    },
+    trips: form.trips,
+  };
+  embedJsonSheet(wb, importPayload);
+
+  // Print setup (V8-2026 format): landscape A4, scaled to fit all 19 columns on one page WIDE
+  // -- fitToHeight: 0 means unconstrained tall (Excel's "fit sheet on one page wide by however
+  // many pages tall it needs"), so many-trip claims flow onto page 2+ instead of shrinking to
+  // fit vertically. Title/month/header rows (1:3) repeat on every printed page. Baked into the
+  // saved .xlsx so Ctrl+P is correct without the user touching print settings. Mirrors
+  // lib/travel/export-workbook.ts (Travel Request)'s identical fix.
+  ws.pageSetup.orientation = "landscape";
+  ws.pageSetup.paperSize = 9; // A4
+  ws.pageSetup.fitToPage = true;
+  ws.pageSetup.fitToWidth = 1;
+  ws.pageSetup.fitToHeight = 0;
+  ws.pageSetup.margins = { top: 0.75, bottom: 0.75, left: 0.25, right: 0.25, header: 0.3, footer: 0.3 };
+  ws.pageSetup.printArea = `A1:S${lastRow}`;
+  ws.pageSetup.printTitlesRow = "1:3";
 
   const buffer = Buffer.from(await wb.xlsx.writeBuffer());
   const grandTotal = calcClaimGrandTotal(form.trips, rateForRow);

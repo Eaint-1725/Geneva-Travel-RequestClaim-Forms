@@ -38,7 +38,7 @@ export function validateClaimForm(form: TravelClaimForm, unRates: UnRate[]): Val
     errors["header.travelArea"] = "Please select the travel area";
   }
 
-  if (header.team === "MAL" && !header.notes.trim()) errors["header.notes"] = "Notes is required";
+  if ((header.team === "MAL" || header.team === "HIV") && !header.notes.trim()) errors["header.notes"] = "Notes is required";
 
   if (documents.travelRequest.length > 1) errors["documents.travelRequest"] = "Only one Travel Request file is allowed";
   else if (documents.travelRequest.length === 0) errors["documents.travelRequest"] = "Attach the Travel Request PDF";

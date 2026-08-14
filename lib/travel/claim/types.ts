@@ -83,6 +83,15 @@ export function makeEmptyClaimHeader(): TravelClaimHeader {
   };
 }
 
+/** Embedded into every generated Travel Claim .xlsx (see lib/travel/excel-embed.ts) and read
+ * back by the "Import Excel" flow (see app/api/travel/claim/import/route.ts) to auto-fill a
+ * re-submission. Deliberately excludes Signature/email/submissionDate/documents -- those are
+ * never re-imported (redone by the user, or server-derived at submit time). */
+export interface TravelClaimImportPayload {
+  header: Pick<TravelClaimHeader, "month" | "team" | "name" | "position" | "dutyStation" | "notes" | "travelArea">;
+  trips: Trip[];
+}
+
 export function makeEmptyClaimDocuments(): ClaimDocuments {
   return {
     travelRequest: [],

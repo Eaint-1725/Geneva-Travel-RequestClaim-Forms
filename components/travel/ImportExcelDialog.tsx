@@ -3,29 +3,34 @@
 import { useState } from "react";
 import Button from "@/components/Button";
 import Dropzone from "@/components/Dropzone";
-import type { TravelRequestImportPayload } from "@/lib/travel/types";
+import type { ImportedFormResult } from "@/lib/travel/types";
 
 const GENERIC_ERROR = "Couldn't import this file — please try again.";
 
-/** What /api/travel/import returns on success -- the embedded form payload plus the submission
- * number parsed from the filename (see lib/travel/submission-naming.ts). */
-export interface ImportedRequestData {
-  header: TravelRequestImportPayload["header"];
-  trips: TravelRequestImportPayload["trips"];
-  submissionNumber: number;
-}
-
-// Popup for "Import Excel" on the Travel Request form -- uploads a previously system-generated
-// .xlsx to /api/travel/import, which validates the filename and reads the file's embedded form
-// data (see lib/travel/excel-embed.ts), and hands the result back to the page to populate state.
-export default function ImportExcelDialog({
+// Popup for "Import Excel", shared by Travel Request and Travel Claim -- uploads a previously
+// system-generated .xlsx to `apiUrl`, which validates the filename and reads the file's embedded
+// form data (see lib/travel/excel-embed.ts), and hands the result back to the page to populate
+// state. Generic over the header shape (THeader) since Request's and Claim's headers differ (e.g.
+// Claim's travelArea); everything else -- copy structure, upload flow, error handling -- is
+// identical between the two, so this stays one component (mirrors SubmitNoteDialog's own `kind`
+// prop for the same request/claim split).
+export default function ImportExcelDialog<THeader>({
   open,
   onCancel,
   onImported,
+  apiUrl,
+  docLabel,
+  excludedFieldsNote,
 }: {
   open: boolean;
   onCancel: () => void;
-  onImported: (result: ImportedRequestData, fileName: string) => void;
+  onImported: (result: ImportedFormResult<THeader>, fileName: string) => void;
+  /** Import route for this form, e.g. "/api/travel/import" or "/api/travel/claim/import". */
+  apiUrl: string;
+  /** "Travel Request" | "Travel Claim" -- used in the intro copy. */
+  docLabel: string;
+  /** e.g. "Your signature, email, and Approval Attachments won't be imported — you'll redo those." */
+  excludedFieldsNote: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,8 +45,8 @@ export default function ImportExcelDialog({
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch("/api/travel/import", { method: "POST", body: fd });
-      const body = (await res.json().catch(() => ({}))) as Partial<ImportedRequestData> & { error?: string };
+      const res = await fetch(apiUrl, { method: "POST", body: fd });
+      const body = (await res.json().catch(() => ({}))) as Partial<ImportedFormResult<THeader>> & { error?: string };
       if (!res.ok || !body.header || !body.trips || typeof body.submissionNumber !== "number") {
         throw new Error(body.error ?? GENERIC_ERROR);
       }
@@ -64,8 +69,7 @@ export default function ImportExcelDialog({
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-gray-200 bg-white p-5 shadow-lg">
         <h2 className="mb-1 text-base font-semibold text-navy-900">Import Excel</h2>
         <p className="mb-3 text-sm text-gray-500">
-          Upload a Travel Request Excel this system previously generated for you to auto-fill this form as a re-submission. Your
-          signature, email, and Approval Attachments won't be imported — you'll redo those.
+          Upload a {docLabel} Excel this system previously generated for you to auto-fill this form as a re-submission. {excludedFieldsNote}
         </p>
 
         <Dropzone

@@ -7,12 +7,21 @@ import { calcGrandTotal } from "@/lib/travel/calc";
 import { REQUEST_EXCEL_STORAGE_KEY, downloadRequestExcel, type StoredRequestExcel } from "@/lib/travel/excel-download";
 import { formatDateLong, formatMmk, formatUsd, todayIso } from "@/lib/travel/format";
 import { TEAMS } from "@/lib/travel/rates";
-import { makeEmptyTrip, type Signature, type SubmissionMeta, type Trip, type TravelRequestForm, type UploadedFile } from "@/lib/travel/types";
+import {
+  makeEmptyTrip,
+  type ImportedFormResult,
+  type Signature,
+  type SubmissionMeta,
+  type Trip,
+  type TravelRequestForm,
+  type TravelRequestImportPayload,
+  type UploadedFile,
+} from "@/lib/travel/types";
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
 import { validateForm } from "@/lib/travel/validation";
 import ApprovalAttachmentsField from "@/components/travel/ApprovalAttachmentsField";
 import Field from "@/components/travel/Field";
-import ImportExcelDialog, { type ImportedRequestData } from "@/components/travel/ImportExcelDialog";
+import ImportExcelDialog from "@/components/travel/ImportExcelDialog";
 import SignaturePad from "@/components/travel/SignaturePad";
 import SubmitNoteDialog, { isSubmitNoteValid } from "@/components/travel/SubmitNoteDialog";
 import TripBlock from "./TripBlock";
@@ -157,7 +166,7 @@ export default function TravelRequestPage() {
   // submission is inherently a re-submission of the one that generated the file, so Submission
   // type is forced to Updated at the SAME number the file was ("Submission 2" stays 2, not 3) --
   // see SubmitNoteDialog's lockedToUpdated prop for where "New" gets disabled.
-  function handleImported(result: ImportedRequestData, fileName: string) {
+  function handleImported(result: ImportedFormResult<TravelRequestImportPayload["header"]>, fileName: string) {
     setHeader((h) => ({
       ...h,
       month: result.header.month,
@@ -426,10 +435,13 @@ export default function TravelRequestPage() {
         lockedToUpdated={importedFileName !== null}
       />
 
-      <ImportExcelDialog
+      <ImportExcelDialog<TravelRequestImportPayload["header"]>
         open={importDialogOpen}
         onCancel={() => setImportDialogOpen(false)}
         onImported={handleImported}
+        apiUrl="/api/travel/import"
+        docLabel="Travel Request"
+        excludedFieldsNote="Your signature, email, and Approval Attachments won't be imported — you'll redo those."
       />
     </div>
   );

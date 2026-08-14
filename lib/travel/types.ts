@@ -70,6 +70,16 @@ export interface TravelRequestImportPayload {
   trips: Trip[];
 }
 
+/** What an Import Excel flow resolves to, shared by Travel Request and Travel Claim (see
+ * components/travel/ImportExcelDialog.tsx) -- generic over the header shape since the two forms'
+ * headers differ (e.g. Claim's travelArea), but both reuse the same Trip[] and the same
+ * "submission number comes from the filename, not the embedded data" rule. */
+export interface ImportedFormResult<THeader> {
+  header: THeader;
+  trips: Trip[];
+  submissionNumber: number;
+}
+
 /** Whether this submission is brand new or replaces one HR already received -- drives the
  * "[UPDATED]" subject prefix and the note block in the email body (see lib/email builders). */
 export type SubmissionType = "new" | "updated";
