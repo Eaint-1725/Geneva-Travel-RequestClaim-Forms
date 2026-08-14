@@ -7,9 +7,10 @@ import { calcGrandTotal } from "@/lib/travel/calc";
 import { REQUEST_EXCEL_STORAGE_KEY, downloadRequestExcel, type StoredRequestExcel } from "@/lib/travel/excel-download";
 import { formatDateLong, formatMmk, formatUsd, todayIso } from "@/lib/travel/format";
 import { TEAMS } from "@/lib/travel/rates";
-import { makeEmptyTrip, type Signature, type SubmissionMeta, type Trip, type TravelRequestForm } from "@/lib/travel/types";
+import { makeEmptyTrip, type Signature, type SubmissionMeta, type Trip, type TravelRequestForm, type UploadedFile } from "@/lib/travel/types";
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
 import { validateForm } from "@/lib/travel/validation";
+import ApprovalAttachmentsField from "@/components/travel/ApprovalAttachmentsField";
 import Field from "@/components/travel/Field";
 import SignaturePad from "@/components/travel/SignaturePad";
 import SubmitNoteDialog, { isSubmitNoteValid } from "@/components/travel/SubmitNoteDialog";
@@ -42,6 +43,10 @@ export default function TravelRequestPage() {
   const [header, setHeader] = useState<TravelRequestForm["header"]>(makeEmptyHeader());
   const [trips, setTrips] = useState<Trip[]>([makeEmptyTrip()]);
   const [signature, setSignature] = useState<Signature | null>(null);
+  const [attachments, setAttachments] = useState<UploadedFile[]>([]);
+  // Tracks in-flight Approval Attachment uploads so Submit stays disabled until every upload
+  // has resolved -- otherwise a fast click could submit before a file's URL lands in state.
+  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
 
   // Submit is gated purely on live validity (spec §4). "interacted" just controls when
   // per-field errors start showing -- otherwise a brand-new blank form would greet the
@@ -58,8 +63,8 @@ export default function TravelRequestPage() {
   const [rateError, setRateError] = useState<string | null>(null);
   const [rateRefreshing, setRateRefreshing] = useState(false);
 
-  const form: TravelRequestForm = { header, trips, signature };
-  const { errors, isValid } = useMemo(() => validateForm(form), [header, trips, signature]);
+  const form: TravelRequestForm = { header, trips, signature, attachments };
+  const { errors, isValid } = useMemo(() => validateForm(form), [header, trips, signature, attachments]);
   const showErrors = interacted;
 
   const exchangeRate = header.exchangeRate ?? 0;
@@ -122,12 +127,18 @@ export default function TravelRequestPage() {
     setSignature(next);
   }
 
+  function updateAttachments(next: UploadedFile[]) {
+    setInteracted(true);
+    setAttachments(next);
+  }
+
   function handleClear() {
     if (!window.confirm("Clear the entire form? This can't be undone.")) return;
     const rate = latestRate(unRates);
     setHeader({ ...makeEmptyHeader(), exchangeRate: rate?.rate ?? null });
     setTrips([makeEmptyTrip()]);
     setSignature(null);
+    setAttachments([]);
     setInteracted(false);
     setApiError(null);
     setNotice(null);
@@ -138,7 +149,7 @@ export default function TravelRequestPage() {
     setNotice(null);
     // Keep the existing validation gate first -- the dialog only opens once the form itself
     // is valid; it must never become a way to bypass required-field checks.
-    if (!isValid) return;
+    if (!isValid || attachmentsUploading) return;
     setDialogOpen(true);
   }
 
@@ -258,7 +269,7 @@ export default function TravelRequestPage() {
           </div>
         </div>
 
-        {header.team === "MAL" && (
+        {(header.team === "MAL" || header.team === "HIV") && (
           <div className="mt-3">
             <Field label="Notes" error={showErrors ? errors["header.notes"] : undefined} width="w-full">
               <textarea
@@ -335,18 +346,29 @@ export default function TravelRequestPage() {
             Your own email (personal Gmail is fine) — HR will reply to your travel request here.
           </p>
         </div>
+
+        <div className="mt-3">
+          <ApprovalAttachmentsField
+            files={attachments}
+            onChange={updateAttachments}
+            error={showErrors ? errors["attachments"] : undefined}
+            disabled={busy}
+            onUploadingChange={setAttachmentsUploading}
+          />
+        </div>
       </div>
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-          <Button type="button" variant="primary" onClick={handleSubmitClick} disabled={busy || !isValid} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-submit-btn">
-            {busy ? "Sending…" : "Submit travel request"}
+          <Button type="button" variant="primary" onClick={handleSubmitClick} disabled={busy || !isValid || attachmentsUploading} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-submit-btn">
+            {busy ? "Sending…" : attachmentsUploading ? "Uploading…" : "Submit travel request"}
           </Button>
           <Button type="button" variant="secondary" onClick={handleClear} disabled={busy} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-clear-btn">
             Clear
           </Button>
         </div>
         {!isValid && <p className="mt-1 text-xs text-gray-400">Fill in every required field above to enable submit.</p>}
+        {isValid && attachmentsUploading && <p className="mt-1 text-xs text-gray-400">Waiting for uploads to finish…</p>}
       </div>
 
       <SubmitNoteDialog

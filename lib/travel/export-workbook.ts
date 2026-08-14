@@ -283,13 +283,13 @@ export async function buildTravelRequestWorkbook(form: TravelRequestForm): Promi
     cell.border = THIN_BORDER;
   }
 
-  // Notes block (MAL team only) -- one merged, wrapped row per line, centered under
+  // Notes block (MAL or HIV team only) -- one merged, wrapped row per line, centered under
   // columns F:K, so long lines never spill into other cells.
   const NOTES_START_COL = 6;
   const NOTES_END_COL = 11;
   const NOTES_MERGED_WIDTH_CHARS = 90; // approx chars that fit across the merged F:K span
   const DEFAULT_ROW_HEIGHT = 15;
-  if (form.header.team === "MAL" && form.header.notes.trim() !== "") {
+  if ((form.header.team === "MAL" || form.header.team === "HIV") && form.header.notes.trim() !== "") {
     row = grandRow + 1; // immediately below the Grand Total row, no gap
     for (const line of form.header.notes.split(/\r?\n/)) {
       ws.mergeCells(row, NOTES_START_COL, row, NOTES_END_COL);
@@ -344,6 +344,21 @@ export async function buildTravelRequestWorkbook(form: TravelRequestForm): Promi
   signedDateCell.value = parseDate(form.header.submissionDate);
   signedDateCell.numFmt = "d-mmm-yy";
   signedDateCell.alignment = { horizontal: "left" };
+
+  // Print setup (V8-2026 format): landscape A4, scaled to fit all 19 columns on one page WIDE
+  // -- fitToHeight: 0 means unconstrained tall (Excel's "fit sheet on one page wide by however
+  // many pages tall it needs"), so many-trip requests flow onto page 2+ instead of shrinking
+  // to fit vertically. Title/month/header rows (1:3) repeat on every printed page. Baked into
+  // the saved .xlsx so Ctrl+P is correct without the user touching print settings.
+  const lastRow = row;
+  ws.pageSetup.orientation = "landscape";
+  ws.pageSetup.paperSize = 9; // A4
+  ws.pageSetup.fitToPage = true;
+  ws.pageSetup.fitToWidth = 1;
+  ws.pageSetup.fitToHeight = 0;
+  ws.pageSetup.margins = { top: 0.75, bottom: 0.75, left: 0.25, right: 0.25, header: 0.3, footer: 0.3 };
+  ws.pageSetup.printArea = `A1:S${lastRow}`;
+  ws.pageSetup.printTitlesRow = "1:3";
 
   const buffer = Buffer.from(await wb.xlsx.writeBuffer());
   const grandTotal = calcGrandTotal(form.trips, exchangeRate);
