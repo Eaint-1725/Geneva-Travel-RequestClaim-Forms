@@ -1,6 +1,10 @@
 {
-  "fetchedAt": "2026-08-12T01:45:49.436Z",
+  "fetchedAt": "2026-08-14T01:55:13.804Z",
   "rates": [
+    {
+      "rate": 4192,
+      "effectiveDate": "2026-08-15"
+    },
     {
       "rate": 4192,
       "effectiveDate": "2026-08-01"
