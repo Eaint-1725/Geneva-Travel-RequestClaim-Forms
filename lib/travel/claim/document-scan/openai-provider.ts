@@ -17,12 +17,18 @@ globalThis.Path2D ??= Path2D as unknown as typeof globalThis.Path2D;
 globalThis.DOMMatrix ??= DOMMatrix as unknown as typeof globalThis.DOMMatrix;
 globalThis.ImageData ??= ImageData as unknown as typeof globalThis.ImageData;
 
-// OpenAI vision implementation of DocScanProvider -- rasterizes page 1 of a one-page claim
-// document (Travel Cover or Travel Report) to a JPEG ourselves (see rasterizePage below), then
-// sends that image to a vision-capable Responses API model and gets back a strict
-// JSON checklist. Both documents share this one file/provider/schema-building plumbing -- they're
-// the same shape of problem (read the filled-in value beside/inside each labelled field, judge
-// pass/fail/block) with two different checklists (COVER_* vs REPORT_* below).
+// OpenAI vision implementation of DocScanProvider -- rasterizes a claim document (Travel Cover or
+// Travel Report) to one JPEG per page ourselves (see rasterizePdfPage/rasterizeAllPages below),
+// then sends those image(s) to a vision-capable Responses API model and
+// gets back a strict JSON checklist. Both documents share this one file/provider/schema-building
+// plumbing -- they're the same shape of problem (read the filled-in value beside/inside each
+// labelled field, judge pass/fail/block) with two different checklists (COVER_* vs REPORT_*
+// below). Both documents read EVERY page: the Travel Cover can legitimately run to 2+ pages, and
+// checks like section_iii_present/section_iii_names/ssa_signature commonly land on a later page;
+// the Travel Report's other checks are still expected on page 1 in practice, but its
+// employee_signature check specifically must search every page -- a long report's employee
+// signature can land at the bottom of the last page, and page-1-only reading would falsely block
+// a validly-signed report.
 //
 // We rasterize ourselves rather than sending the PDF straight through (the Responses API can
 // accept a PDF directly and will extract page images internally) because that internal extraction
@@ -55,17 +61,26 @@ globalThis.ImageData ??= ImageData as unknown as typeof globalThis.ImageData;
 
 const DEFAULT_MODEL = "gpt-4o";
 
-// ~150 DPI (PDF points are 1/72in) -- lands around a 1600-1800px long edge for a standard
-// A4/Letter page, still plenty for the model to read handwriting/ticks at detail:"high". The
-// previous 300 DPI target produced a huge image that blocked the Node event loop while rendering
-// (stalling concurrent requests like blob-upload) and an oversized base64 payload to OpenAI --
-// this is the "still legible, no longer heavy" middle ground. Bump modestly (e.g. 200) rather
-// than back toward 300 if a specific field stops reading reliably.
-const RASTER_DPI = 150;
+// ~200 DPI (PDF points are 1/72in) -- stepped up from the previous 150 baseline (~1600-1800px long
+// edge) to read handwriting more reliably at detail:"high", while staying well short of the 300
+// DPI target that used to block the Node event loop while rendering (stalling concurrent requests
+// like blob-upload) and produce an oversized base64 payload to OpenAI. Handwriting reading is
+// inherently imperfect for any vision model no matter the resolution -- this raises accuracy, it
+// doesn't guarantee a correct read, which is exactly why every check still has an honest "warn"
+// path and the per-item manual override exists. Now that the Travel Cover can rasterize several
+// pages (see rasterizeAllPages below), pages are always rendered one at a time in sequence, never
+// concurrently, so per-page CPU cost doesn't stack into a single event-loop-blocking burst. Bump
+// further (rather than back toward 300) only if a specific field stops reading reliably.
+const RASTER_DPI = 200;
 
 // JPEG over PNG for the same reason: a scanned document JPEG-compresses far smaller than a PNG
 // with no meaningful legibility loss, which is most of what keeps the base64 payload small.
 const JPEG_QUALITY = 82;
+
+// Safety ceiling on how many pages get rasterized/sent for either document -- real covers and
+// reports are short (1-3 pages); this only guards against a pathological upload (e.g. a
+// misdirected multi-page scan) ballooning render time/payload, never a real form.
+const MAX_SCAN_PAGES = 10;
 
 // Hard ceilings so a slow/hanging OpenAI call or rasterization can never hang the request
 // indefinitely -- see scanWithTimeout below. OPENAI_CALL_TIMEOUT_MS aborts the network call
@@ -101,7 +116,16 @@ function ensurePdfjsModule(): Promise<void> {
   return pdfjsModuleReady;
 }
 
-// Renders page 1 of a one-page claim document PDF to a JPEG at RASTER_DPI. Built directly on
+// Shared pdfjs setup for rasterizing a document -- loads the module and opens the PDF exactly once
+// per scan, before rasterizeAllPages renders however many pages it has.
+async function loadPdfDocument(pdf: Buffer) {
+  await ensurePdfjsModule();
+  const CanvasFactory = await createIsomorphicCanvasFactory(() => import("@napi-rs/canvas"));
+  const pdfDoc = await getDocumentProxy(new Uint8Array(pdf), { CanvasFactory });
+  return { pdfDoc, CanvasFactory };
+}
+
+// Renders one page of an already-opened PDF document to a JPEG at RASTER_DPI. Built directly on
 // unpdf's lower-level getDocumentProxy/createIsomorphicCanvasFactory (rather than its
 // renderPageAsImage helper) because that helper hard-codes PNG output via canvas.toDataURL() with
 // no format/quality control -- we need JPEG for payload size. unpdf/pdfjs-dist + @napi-rs/canvas
@@ -109,11 +133,12 @@ function ensurePdfjsModule(): Promise<void> {
 // this safe to run in a Vercel Node serverless function -- see next.config.js's
 // serverComponentsExternalPackages for the webpack-bundling fix that made this work reliably
 // under Next's server build.
-async function rasterizePage(pdf: Buffer): Promise<Buffer> {
-  await ensurePdfjsModule();
-  const CanvasFactory = await createIsomorphicCanvasFactory(() => import("@napi-rs/canvas"));
-  const pdfDoc = await getDocumentProxy(new Uint8Array(pdf), { CanvasFactory });
-  const page = await pdfDoc.getPage(1);
+async function rasterizePdfPage(
+  pdfDoc: Awaited<ReturnType<typeof getDocumentProxy>>,
+  CanvasFactory: Awaited<ReturnType<typeof createIsomorphicCanvasFactory>>,
+  pageNumber: number,
+): Promise<Buffer> {
+  const page = await pdfDoc.getPage(pageNumber);
   const viewport = page.getViewport({ scale: RASTER_DPI / 72 });
   const drawingContext = new CanvasFactory().create(viewport.width, viewport.height);
   // pdfjs-dist's RenderParameters type is browser-shaped (HTMLCanvasElement/CanvasRenderingContext2D)
@@ -134,9 +159,28 @@ async function rasterizePage(pdf: Buffer): Promise<Buffer> {
   }
   // TEMP DIAGNOSTIC -- remove once confirmed the payload is comfortably small in production.
   console.log(
-    `[doc-scan] rasterized ${viewport.width}x${viewport.height} -> jpeg ${buffer.length} bytes (base64 ~${Math.ceil((buffer.length * 4) / 3)} bytes)`,
+    `[doc-scan] rasterized page ${pageNumber} ${viewport.width}x${viewport.height} -> jpeg ${buffer.length} bytes (base64 ~${Math.ceil((buffer.length * 4) / 3)} bytes)`,
   );
   return buffer;
+}
+
+// Every page of the document, up to MAX_SCAN_PAGES -- used for both the Travel Cover and the
+// Travel Report (see the file-level comment for why both need every page). Rendered sequentially
+// (one page's render + encode fully finishes before the next starts), not in parallel, so a
+// multi-page document's CPU cost stays spread out rather than stacking into one event-loop-
+// blocking burst (see RASTER_DPI's comment). Covers and reports are short in practice, so this
+// stays cheap.
+async function rasterizeAllPages(pdf: Buffer): Promise<Buffer[]> {
+  const { pdfDoc, CanvasFactory } = await loadPdfDocument(pdf);
+  const pageCount = Math.min(pdfDoc.numPages, MAX_SCAN_PAGES);
+  if (pdfDoc.numPages > MAX_SCAN_PAGES) {
+    console.log(`[doc-scan] document has ${pdfDoc.numPages} pages -- only rasterizing the first ${MAX_SCAN_PAGES}`);
+  }
+  const buffers: Buffer[] = [];
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+    buffers.push(await rasterizePdfPage(pdfDoc, CanvasFactory, pageNumber));
+  }
+  return buffers;
 }
 
 // Races the real scan against a fixed ceiling so a slow/hung rasterization or model call always
@@ -217,13 +261,21 @@ function parseModelJson(text: string): RawModelResult | null {
   }
 }
 
+// pageImages is every page to be sent, in document order -- one image for the Travel Report
+// (always just page 1), one-per-page for the Travel Cover (see rasterizeAllPages). The trailing
+// instruction text is worded differently for a single image vs. several so the model doesn't
+// mistake a multi-page cover's later pages for a separate document.
 async function requestScan(
   client: OpenAI,
   model: string,
-  pageImage: Buffer,
+  pageImages: readonly Buffer[],
   systemPrompt: string,
   checkIds: readonly string[],
 ): Promise<RawModelResult | null> {
+  const instruction =
+    pageImages.length > 1
+      ? `This document has ${pageImages.length} pages, shown in order below as page 1 through page ${pageImages.length}. Treat them as one document -- some fields may appear on a later page. Scan all pages together and return the JSON checklist.`
+      : "Scan this document and return the JSON checklist.";
   const response = await client.responses.create(
     {
       model,
@@ -232,12 +284,12 @@ async function requestScan(
         {
           role: "user",
           content: [
-            {
-              type: "input_image",
-              detail: "high",
+            ...pageImages.map((pageImage) => ({
+              type: "input_image" as const,
+              detail: "high" as const,
               image_url: `data:image/jpeg;base64,${pageImage.toString("base64")}`,
-            },
-            { type: "input_text", text: "Scan this document and return the JSON checklist." },
+            })),
+            { type: "input_text", text: instruction },
           ],
         },
       ],
@@ -319,25 +371,25 @@ const SIGNATURE_MISSING_MESSAGE = "SSA holder signature is MISSING — the cover
 const SUPERVISOR_NAME = "Ei Thae Phyu";
 const FINANCE_NAME = "Theint Theint Thu";
 
-const COVER_SYSTEM_PROMPT = `You are validating a single, fixed one-page "TRAVEL CLAIM SUMMARY FORM" scanned image.
+const COVER_SYSTEM_PROMPT = `You are validating a single, fixed "TRAVEL CLAIM SUMMARY FORM" document. You are shown scanned images of EVERY page of this document, in order (it may be 1, 2, or more pages) -- treat all of them together as one document, not separate documents. A field required by a check below may legitimately appear on any page (for example, on a multi-page cover, Section III and the SSA holder signature commonly land on page 2 or later) -- search across ALL of the pages shown for each check, not just the first one.
 
-This is a scanned form. For every check, the data that matters is the VALUE filled in NEXT TO or INSIDE the labelled cell -- not the printed label itself. A label being present on the form (e.g. the text "Total Travel Claim amount (MMK)") is not evidence of anything; you must find and read the handwritten/typed/ticked VALUE beside or inside that label. Examples: the claim amount is the handwritten or typed number in the cell to the right of the "Total Travel Claim amount (MMK)" label; a signature is ink actually INSIDE the "Signature SSA holder" box, not the label itself; Hotel/Meals answers are the ticked box or the Yes/No word written beside the label, not the label text. Do NOT report a field as present just because its label exists on the form -- judge only by the filled-in content.
+This is a SCANNED form with handwritten entries, and it may mix Myanmar and English text. For every check, the data that matters is the VALUE actually written in NEXT TO or INSIDE the labelled cell -- not the printed label itself. A label being present on the form (e.g. the text "Total Travel Claim amount (MMK)") is not evidence of anything; you must find and read the handwritten/typed/ticked VALUE beside or inside that label. Examples: the claim amount is the handwritten or typed number in the cell to the right of the "Total Travel Claim amount (MMK)" label; a signature is ink actually INSIDE the "Signature SSA holder" box, not the label itself; Hotel/Meals answers are the ticked box or the handwritten Yes/No word written beside the label, not the label text. Read the value that was actually written in each cell -- do not infer or guess it from context. Do NOT report a field as present just because its label exists on the form -- judge only by the filled-in content.
 
 Report EXACTLY these ${COVER_CHECK_IDS.length} checks, one object per id, using these ids verbatim: ${COVER_CHECK_IDS.join(", ")}. For every check, briefly state in your message what you actually read in the value cell (e.g. for total_amount, quote the number itself, like "Read 612,787 in the Total Travel Claim amount cell."). Every check object also carries two boolean fields, signaturePresent and dateNearSignature -- these are ONLY meaningful for the ssa_signature check (see its rule below); for every other check id just report your best honest read of those two fields or false if not applicable, they will be ignored.
 
 Rules per check:
-- who_geneva_branding: status "fail" ONLY if the document carries an actual WHO/Geneva logo, letterhead, or branding (e.g. a "World Health Organization" letterhead, a Geneva HQ address). The form legitimately contains the phrases "WHO TEAM" and "WHO can query" -- these are normal form text and must NEVER cause a fail here. Only real WHO/Geneva branding counts.
+- who_geneva_branding: status "fail" if the document shows real WHO/Geneva branding -- this covers an actual WHO/Geneva logo, letterhead, or Geneva HQ address, OR the organization being named/branded in printed text via phrases like "World Health Organization", "World Health Organisation", "World Health Organisation (WHO)"/"World Health Organization (WHO)", or an abbreviated form such as "WHO Health Org". Do NOT fail on the legitimate form field "WHO TEAM" or incidental mentions like "WHO can query..." -- these are normal form text and must NEVER cause a fail. Only fail when text is actually naming/branding the organization, not when "WHO" appears as part of an unrelated form label.
 - who_team: "pass" if the text "WHO TEAM" appears on the form.
 - name_format: "pass" if a Name appears in the format "Name, Position (Duty Station)", e.g. "Hla Hla, NTO (Yangon)".
-- hotel_meals: "pass" only if BOTH a Hotel Yes/No answer AND a Meals Yes/No answer are present -- each may be a written Yes/No or a ticked checkbox, read from beside the label, not the label itself.
+- hotel_meals: "pass" only if BOTH a Hotel Yes/No answer AND a Meals Yes/No answer are present -- each may be a handwritten Yes/No or a ticked checkbox, read from beside the label, not the label itself.
 - itinerary: "pass" if the itinerary table has at least one populated row of actual trip data (dates, places, etc.), not just column headers.
 - duty_report: "pass" if "Duty Travel report submitted" has a Yes/No answer written or ticked beside it.
-- ssa_signature: judge ONLY the content actually inside the SSA holder signature box, and set the two boolean fields honestly -- your status/message for this specific check are ignored, only the booleans matter. Set signaturePresent to true ONLY if there is visible handwriting/ink actually INSIDE the box -- a printed label such as "Signature SSA holder:" is NOT a signature, so an empty box with only that label means signaturePresent: false. Separately, set dateNearSignature to true if a Date value (handwritten or typed) is present in the Date field beside/next to the signature box, false if that Date field is empty -- this is independent of whether the signature itself is present. In your message for this check, state plainly what you observe (e.g. "box appears empty, no date" or "handwriting present in the box, date filled in").
+- ssa_signature: look across ALL of the pages shown for the SSA holder signature box (on a multi-page cover it commonly appears on page 2 or later, not necessarily page 1). Judge ONLY the content actually inside that box, and set the two boolean fields honestly -- your status/message for this specific check are ignored, only the booleans matter. Set signaturePresent to true ONLY if there is visible handwriting/ink actually INSIDE the box -- a printed label such as "Signature SSA holder:" is NOT a signature, so an empty box with only that label means signaturePresent: false. Separately, set dateNearSignature to true if a Date value (handwritten or typed) is present in the Date field beside/next to the signature box, false if that Date field is empty -- this is independent of whether the signature itself is present. In your message for this check, state plainly what you observe and which page it's on (e.g. "box appears empty, no date" or "handwriting present in the box on page 2, date filled in").
 - total_amount: "pass" if a Total Travel Claim amount in MMK is present on the form -- read the actual number from the value cell.
-- section_iii_present: "fail" if Section III (Approvals) is missing from the page entirely; "pass" if present.
-- section_iii_names: "pass" only if, within Section III, the supervisor/authorized officer name written/typed in the value cell is "${SUPERVISOR_NAME}" AND the finance staff name written/typed in the value cell is "${FINANCE_NAME}". Allow minor OCR/handwriting spelling variance when matching these two names.
+- section_iii_present: "pass" if Section III (Approvals) appears on ANY of the pages shown; "fail" only if it's missing from the entire document.
+- section_iii_names: "pass" only if, within Section III (wherever it appears across the pages shown), the supervisor/authorized officer name written/typed in the value cell is "${SUPERVISOR_NAME}" AND the finance staff name written/typed in the value cell is "${FINANCE_NAME}". Allow minor OCR/handwriting spelling variance when matching these two names.
 
-Be honest about uncertainty: if you cannot clearly read a field, use status "warn" with a message saying you couldn't confirm it -- never guess "pass" or "fail" when the page is unclear. Do not infer a field is present from a nearby label, heading, or date -- judge each field by what is actually filled in beside or inside it. If you cannot clearly see the content, mark it "warn" with "couldn't confirm", never "pass".
+Be honest about uncertainty: handwriting is inherently hard to read perfectly, on this form and for any scan. If you cannot clearly read a field, use status "warn" with a message saying you couldn't confirm it -- never guess "pass" or "fail" when a value is unclear or ambiguous. Do not infer a field is present from a nearby label, heading, or date -- judge each field by what is actually filled in beside or inside it. If you cannot clearly see the content, mark it "warn" with "couldn't confirm", never "pass".
 
 Respond with ONLY the JSON object described by the schema -- no prose, no markdown code fences, no extra commentary.`;
 
@@ -390,7 +442,15 @@ function buildCoverChecks(raw: RawModelResult): DocCheck[] {
 
 // ---- Travel Report checklist ---------------------------------------------------------------
 
-const REPORT_CHECK_IDS = ["who_geneva_branding", "submitted_by", "place_visited", "planned_date", "travel_date", "tu_signature"] as const;
+const REPORT_CHECK_IDS = [
+  "who_geneva_branding",
+  "submitted_by",
+  "place_visited",
+  "planned_date",
+  "travel_date",
+  "employee_signature",
+  "tu_signature",
+] as const;
 
 type ReportCheckId = (typeof REPORT_CHECK_IDS)[number];
 
@@ -400,35 +460,43 @@ const REPORT_CHECK_LABELS: Record<ReportCheckId, string> = {
   place_visited: "Place visited",
   planned_date: "Planned date",
   travel_date: "Travel date",
-  tu_signature: "TU's Clearance signature",
+  employee_signature: "Employee signature (in the Submitted by block, not TU's/WR's Clearance)",
+  tu_signature: "TU's Clearance / WR's Clearance signature",
 };
+
+const EMPLOYEE_SIGNATURE_PASS_MESSAGE = "Employee signature present.";
+const EMPLOYEE_SIGNATURE_MISSING_MESSAGE =
+  "Employee signature is MISSING — the report must be signed by the employee (this is separate from the TU's/WR's Clearance signature).";
+const EMPLOYEE_SIGNATURE_UNCERTAIN_MESSAGE =
+  "Found the Submitted by signature area but couldn't confidently confirm a handwritten signature mark — please check and override if the report is actually signed.";
 
 // EPI is the only team this form's TU's Clearance box applies to -- decided entirely in our code
 // from the claim form's own team field (see ReportScanContext), never guessed by the model.
 const TU_SIGNATURE_TEAM = "EPI";
-const TU_SIGNATURE_PASS_MESSAGE = "TU's Clearance signature present.";
-const TU_SIGNATURE_MISSING_MESSAGE = "TU's Clearance signature is MISSING (required for EPI).";
+const TU_SIGNATURE_PASS_MESSAGE = "TU's Clearance / WR's Clearance signature present.";
+const TU_SIGNATURE_MISSING_MESSAGE = "TU's Clearance / WR's Clearance signature is MISSING (required for EPI).";
 const TU_SIGNATURE_BOX_NOT_FOUND_MESSAGE =
-  "Couldn't locate the TU's Clearance / Technical Unit box on this page (required for EPI) -- if the report is correctly signed, override this check.";
+  "Couldn't locate the TU's Clearance / Technical Unit / WR's Clearance box (required for EPI) -- if the report is correctly signed, override this check.";
 const TU_SIGNATURE_NOT_REQUIRED_MESSAGE = "Not required for this team.";
 const TU_SIGNATURE_UNKNOWN_TEAM_MESSAGE =
   "Team not detected — can't confirm whether TU's Clearance is required. Select your Team above, then re-upload the report.";
 
-const REPORT_SYSTEM_PROMPT = `You are validating a single, fixed one-page "SUMMARY DUTY TRAVEL REPORT" scanned image.
+const REPORT_SYSTEM_PROMPT = `You are validating a single, fixed "SUMMARY DUTY TRAVEL REPORT" document. You are shown scanned images of EVERY page of this document, in order (it may be 1, 2, or more pages) -- treat all of them together as one document, not separate documents. submitted_by, place_visited, planned_date, travel_date, and tu_signature normally appear on page 1 -- read them from wherever they actually appear, but expect them on page 1. employee_signature is the exception: search ALL of the pages shown for it, including the last page (see its rule below) -- a report's employee signature can land on any page.
 
-This is a scanned form. For every check, the data that matters is the VALUE filled in BESIDE or AFTER the labelled field -- not the printed label itself. A label being present on the form (e.g. the text "PLACE visited") is not evidence of anything; you must find and read the handwritten/typed VALUE beside or after that label. Examples: the place visited is the text written after the "PLACE visited" label, not the label itself; the submitter is the name written after "Submitted by", not the label; a signature is ink actually INSIDE the "TU's Clearance" box, not the label itself. Do NOT report a field as present just because its label exists on the form -- judge only by the filled-in content.
+This is a SCANNED form with handwritten entries, and it may mix Myanmar and English text. For every check, the data that matters is the VALUE filled in BESIDE or AFTER the labelled field -- not the printed label itself. A label being present on the form (e.g. the text "PLACE visited") is not evidence of anything; you must find and read the handwritten/typed VALUE beside or after that label. Examples: the place visited is the text written after the "PLACE visited" label, not the label itself; the submitter is the name written after "Submitted by", not the label; a signature is ink actually INSIDE a signature box, not the label itself. Read the value that was actually written -- do not infer or guess it from context. Do NOT report a field as present just because its label exists on the form -- judge only by the filled-in content.
 
-Report EXACTLY these ${REPORT_CHECK_IDS.length} checks, one object per id, using these ids verbatim: ${REPORT_CHECK_IDS.join(", ")}. For every check, briefly state in your message what you actually read in the value (e.g. for place_visited, quote it, like "Read 'Nay Pyi Taw' after PLACE visited."). Every check object also carries two boolean fields, signaturePresent and dateNearSignature -- both are ONLY meaningful for the tu_signature check (see its rule below): signaturePresent is whether there is ink inside the box, and dateNearSignature is repurposed for this form to mean whether you were able to locate the box itself at all (under either of its known labels), regardless of whether it's signed. For every check id other than tu_signature just report your best honest read of signaturePresent or false if not applicable, and report dateNearSignature as false -- both will be ignored for those checks.
+Report EXACTLY these ${REPORT_CHECK_IDS.length} checks, one object per id, using these ids verbatim: ${REPORT_CHECK_IDS.join(", ")}. For every check, briefly state in your message what you actually read in the value (e.g. for place_visited, quote it, like "Read 'Nay Pyi Taw' after PLACE visited."). Every check object also carries two boolean fields, signaturePresent and dateNearSignature -- these are ONLY meaningful for the employee_signature and tu_signature checks (see their rules below). For employee_signature: signaturePresent is true ONLY when you're confident you see a genuine handwritten signature mark; dateNearSignature is repurposed for this check to mean "ambiguous" -- set it true if you located the Submitted by signature area but can't confidently tell whether the ink there is a signature mark or just the printed name (report the ambiguity honestly instead of guessing), and false if there's no such ambiguity (either a clear signature was found, or the area is clearly unsigned/nothing was found). For tu_signature, signaturePresent is whether there is ink inside the box, and dateNearSignature is repurposed for this form to mean whether you were able to locate the box itself at all (under any of its known labels), regardless of whether it's signed. For every other check id just report your best honest read of signaturePresent or false if not applicable, and report dateNearSignature as false -- both will be ignored for those checks.
 
 Rules per check:
-- who_geneva_branding: status "fail" ONLY if the document carries an actual WHO/Geneva logo, letterhead, or branding (e.g. a "World Health Organization" letterhead, a Geneva HQ address). Ordinary words like "WHO", "EPI", or "UNICEF" appearing in the body text are normal form content and must NEVER cause a fail here. Only real WHO/Geneva branding/letterhead counts.
+- who_geneva_branding: status "fail" if the document shows real WHO/Geneva branding -- this covers an actual WHO/Geneva logo, letterhead, or Geneva HQ address, OR the organization being named/branded in printed text via phrases like "World Health Organization", "World Health Organisation", "World Health Organisation (WHO)"/"World Health Organization (WHO)", or an abbreviated form such as "WHO Health Org". Ordinary words like "WHO", "EPI", or "UNICEF" appearing as normal form content/body text (not naming/branding the organization) must NEVER cause a fail here. Do NOT fail on legitimate form labels/fields such as "WHO TEAM", "WR", or "WR's Clearance" (WHO Representative) either -- these are normal form labels, not branding, even though they contain "WHO" or start with "WR". Only real WHO/Geneva branding/letterhead, or the organization actually being named as above, counts.
 - submitted_by: "pass" if a name appears after the "Submitted by" label in the format "Name, Position (Duty Station)", e.g. "Khaing Win, NTO (EPI), Shan East" -- read the actual filled-in name, not the label.
 - place_visited: "pass" if a value is filled in after the "PLACE visited" label, e.g. "Nay Pyi Taw" -- read the value, not the label.
 - planned_date: "pass" if a value is filled in after the "PLANNED DATE" label, e.g. "17-20 Mar 2026" -- read the value, not the label.
 - travel_date: "pass" if a value is filled in after the "TRAVEL DATE" label, e.g. "17-24 Mar 2026" -- read the value, not the label.
-- tu_signature: this is ONE signature box that different versions of this form label differently -- look for it under EITHER heading "TU's Clearance" OR "Technical Unit", and treat close variants of either as the same box (e.g. "Technical Unit Clearance", "TU Clearance", "T.U. Clearance", with or without a trailing colon, matched case-insensitively). Do not treat the two labels as two separate checks -- there is only ever one such box on the page. First set dateNearSignature to true if you can locate this box at all (under any of those label variants) anywhere on the page, or false if you cannot find it under any of them. Then judge ONLY the content actually inside that box and set signaturePresent honestly: true ONLY if there is visible handwriting/ink actually INSIDE the box -- a printed label alone (e.g. "TU's Clearance:" or "Technical Unit:") is NOT a signature, so an empty box with only that label means signaturePresent: false. If you could not locate the box at all, also report signaturePresent: false. Your status/message for this specific check are ignored, only signaturePresent and dateNearSignature matter.
+- employee_signature: the employee's signature is typically found INSIDE the "Submitted by" header block, near or beside the "(Name)" line and the "Co-traveller(s) (if any):" line -- look there FIRST and most carefully. You are looking for a handwritten ink mark (a stylized scribble, initials, or a signature-like flourish) that is separate from the printed/typed name text -- it may be small, may overlap nearby text, or sit right beside the name; all of these still count as a signature. Do NOT mistake the printed/typed name itself for a signature -- you need actual handwritten ink beyond the typed text. This signature must NOT be ink inside a "TU's Clearance" / "Technical Unit" / "WR's Clearance" box on any page (see tu_signature below) -- a mark inside that box is the TU's/WR's signature, never the employee's, even if it's the only mark you can find anywhere in the document. If you don't find it in the Submitted by block, search the rest of the document (all pages shown) before concluding it's missing -- forms are occasionally laid out differently. Set signaturePresent to true ONLY when you are confident you see a genuine handwritten signature mark (in the Submitted by block or elsewhere, outside a TU/WR box). If the Submitted by signature area clearly exists but you can't confidently tell whether faint/stylized ink there is a signature mark or just the printed name, set signaturePresent to false AND dateNearSignature to true (ambiguous -- do not guess). If the area is clearly empty, or you cannot find any relevant signature anywhere in the document, set both signaturePresent and dateNearSignature to false. Your status/message for this specific check are ignored, only signaturePresent and dateNearSignature matter. This check is required for every team.
+- tu_signature: this is ONE signature box that different versions of this form label differently -- look for it under ANY of these headings: "TU's Clearance", "Technical Unit", OR "WR's Clearance" (WHO Representative), and treat close variants of any of them as the same box (e.g. "Technical Unit Clearance", "TU Clearance", "T.U. Clearance", "WR Clearance", with or without a trailing colon, matched case-insensitively). Do not treat these labels as separate checks -- there is only ever one such box in the document, normally on page 1. First set dateNearSignature to true if you can locate this box at all (under any of those label variants) anywhere across the pages shown, or false if you cannot find it under any of them. Then judge ONLY the content actually inside that box and set signaturePresent honestly: true ONLY if there is visible handwriting/ink actually INSIDE the box -- a printed label alone (e.g. "TU's Clearance:", "Technical Unit:", or "WR's Clearance:") is NOT a signature, so an empty box with only that label means signaturePresent: false. If you could not locate the box at all, also report signaturePresent: false. Your status/message for this specific check are ignored, only signaturePresent and dateNearSignature matter.
 
-Be honest about uncertainty: if you cannot clearly read a field, use status "warn" with a message saying you couldn't confirm it -- never guess "pass" or "fail" when the page is unclear. Do not infer a field is present from a nearby label or heading -- judge each field by what is actually filled in beside or after it. If you cannot clearly see the content, mark it "warn" with "couldn't confirm", never "pass".
+Be honest about uncertainty: handwriting is inherently hard to read perfectly, on this form and for any scan. If you cannot clearly read a field, use status "warn" with a message saying you couldn't confirm it -- never guess "pass" or "fail" when a value is unclear or ambiguous. Do not infer a field is present from a nearby label or heading -- judge each field by what is actually filled in beside or after it. If you cannot clearly see the content, mark it "warn" with "couldn't confirm", never "pass".
 
 Respond with ONLY the JSON object described by the schema -- no prose, no markdown code fences, no extra commentary.`;
 
@@ -461,6 +529,26 @@ function buildReportChecks(raw: RawModelResult, context: ReportScanContext): Doc
 
   return REPORT_CHECK_IDS.map((id) => {
     const entry = byId.get(id);
+
+    // Employee signature: our code owns status and message outright, same reasoning as
+    // ssa_signature/tu_signature (see the file-level comment) -- a missing/unparseable model entry
+    // is treated as "nothing observed", so a scan glitch fails safe rather than passing a signature
+    // check no one actually verified. Required for every team, unlike tu_signature. dateNearSignature
+    // is repurposed here (see the prompt) to mean "found the Submitted by area but the ink is
+    // ambiguous" -- that reads as "warn" (surfaced, overridable, but not a confident MISSING),
+    // distinct from "fail" when nothing relevant was found at all. Under strict gating "warn" still
+    // blocks exactly like "fail" does -- only an explicit "pass" clears the check.
+    if (id === "employee_signature") {
+      const signed = entry?.signaturePresent ?? false;
+      const uncertain = entry?.dateNearSignature ?? false;
+      const status: DocCheck["status"] = signed ? "pass" : uncertain ? "warn" : "fail";
+      const message = signed
+        ? EMPLOYEE_SIGNATURE_PASS_MESSAGE
+        : uncertain
+          ? EMPLOYEE_SIGNATURE_UNCERTAIN_MESSAGE
+          : EMPLOYEE_SIGNATURE_MISSING_MESSAGE;
+      return { id, label: REPORT_CHECK_LABELS[id], status, severity: "block", message };
+    }
 
     // TU's Clearance: our code owns status and message outright. Team-gating happens here, from
     // the form's own team field, never from the model (which is never told the team) -- a non-EPI
@@ -510,11 +598,11 @@ export class OpenAiDocScanProvider implements DocScanProvider {
   private async runCoverScan(pdf: Buffer): Promise<DocScanResult> {
     const client = new OpenAI({ apiKey: this.apiKey });
     const model = process.env.OPENAI_SCAN_MODEL || DEFAULT_MODEL;
-    const pageImage = await rasterizePage(pdf);
+    const pageImages = await rasterizeAllPages(pdf);
 
     let raw: RawModelResult | null;
     try {
-      raw = await requestScan(client, model, pageImage, COVER_SYSTEM_PROMPT, COVER_CHECK_IDS);
+      raw = await requestScan(client, model, pageImages, COVER_SYSTEM_PROMPT, COVER_CHECK_IDS);
     } catch (e) {
       // The SDK already retried (see OPENAI_MAX_RETRIES) -- this only fires once every retry is
       // exhausted, so a busy-provider message is accurate here, not a false alarm.
@@ -536,11 +624,11 @@ export class OpenAiDocScanProvider implements DocScanProvider {
   private async runReportScan(pdf: Buffer, context: ReportScanContext): Promise<DocScanResult> {
     const client = new OpenAI({ apiKey: this.apiKey });
     const model = process.env.OPENAI_SCAN_MODEL || DEFAULT_MODEL;
-    const pageImage = await rasterizePage(pdf);
+    const pageImages = await rasterizeAllPages(pdf);
 
     let raw: RawModelResult | null;
     try {
-      raw = await requestScan(client, model, pageImage, REPORT_SYSTEM_PROMPT, REPORT_CHECK_IDS);
+      raw = await requestScan(client, model, pageImages, REPORT_SYSTEM_PROMPT, REPORT_CHECK_IDS);
     } catch (e) {
       // The SDK already retried (see OPENAI_MAX_RETRIES) -- this only fires once every retry is
       // exhausted, so a busy-provider message is accurate here, not a false alarm.

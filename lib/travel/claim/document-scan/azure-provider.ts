@@ -18,7 +18,16 @@ import type { DocCheck, DocScanProvider, DocScanResult, ReportScanContext } from
 
 // ---- Tunables, one edit point for post-validation tuning -------------------------------------
 
-const WHO_BRANDING_PHRASES = ["world health organization"];
+// Kept in sync with the equivalent expanded wording in openai-provider.ts's who_geneva_branding
+// prompt rule, even though this provider isn't the active one while OPENAI_API_KEY is set (see
+// ./index) -- so this fallback path doesn't silently regress if it's ever selected.
+const WHO_BRANDING_PHRASES = [
+  "world health organization",
+  "world health organisation",
+  "world health organization (who)",
+  "world health organisation (who)",
+  "who health org",
+];
 // Real WHO/Geneva HQ address fragments -- best-effort, unverified against a real letterhead.
 const WHO_LETTERHEAD_PATTERNS = [/avenue appia/i, /1211\s*geneva/i, /geneva\s*27\b/i];
 // Legitimate WHO-containing phrases on this form -- stripped out before scanning for branding so
