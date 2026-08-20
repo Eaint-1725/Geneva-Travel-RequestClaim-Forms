@@ -1,4 +1,4 @@
-import { rowFieldKey, validateRow } from "../validation";
+import { checkRowDaySpanBoundary, rowFieldKey, validateRow } from "../validation";
 import type { UnRate } from "../un-rates";
 import { resolveRowRate } from "./rate";
 import type { TravelClaimForm } from "./types";
@@ -42,6 +42,7 @@ export function validateClaimForm(form: TravelClaimForm, unRates: UnRate[]): Val
         if (row.date && !resolveRowRate(row.date, unRates)) {
           errors[rowFieldKey(trip.id, row.id, "exchangeRate")] = "No UN rate on file for this date";
         }
+        checkRowDaySpanBoundary(row, trip.id, errors, unRates);
       }
     }
   }
