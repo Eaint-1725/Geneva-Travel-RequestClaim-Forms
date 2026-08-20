@@ -368,5 +368,15 @@
     "dutyStation": "Yagon",
     "grandTotalPerDiemUsd": 30.572343269999998,
     "grandTotalAmountMmk": 276875.22457049997
+  },
+  {
+    "id": "TRV-MSSOLOWY",
+    "createdAt": "2026-08-14T08:24:51.298Z",
+    "month": "2026-08",
+    "team": "EPI",
+    "name": "eaint test",
+    "dutyStation": "eaint test",
+    "grandTotalPerDiemUsd": 125.86796416556001,
+    "grandTotalAmountMmk": 1027638.5057820276
   }
 ]
