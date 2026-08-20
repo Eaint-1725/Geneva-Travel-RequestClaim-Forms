@@ -6,3 +6,8 @@ node_modules/
 .DS_Store
 .claude/
 .vercel/
+
+# Local dev logging only -- best-effort, non-fatal write in addSubmission(); no reader in the
+# app depends on it. NOT data/un-rates.json -- that file IS relied on in production as the
+# fallback UN rate source when a live fetch fails on a fresh, read-only-fs deploy; keep it tracked.
+data/travel-submissions.json

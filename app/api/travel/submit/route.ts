@@ -107,7 +107,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // can't be stale, spoofed, or left blank by a form that no longer collects it (see Fix 1).
   form = { ...form, header: { ...form.header, submissionDate: todayIso() } };
 
+  // Re-derive the UN rate history server-side (never trust a client-supplied rate) -- the
+  // same source used to render the rows and to validate them (mirrors claim-export/route.ts).
   const { rates: unRates } = await getUnRates();
+
   const { isValid, errors } = validateForm(form, unRates);
   if (!isValid) {
     return NextResponse.json({ error: "The request is missing required fields", errors }, { status: 400 });
