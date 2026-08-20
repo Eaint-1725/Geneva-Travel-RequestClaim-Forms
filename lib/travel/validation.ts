@@ -1,5 +1,6 @@
 import type { Row, TravelRequestForm } from "./types";
 import { formatDateLong, formatMonthLong } from "./format";
+import { rowDaySpanBoundary, type UnRate } from "./un-rates";
 
 export interface ValidationResult {
   errors: Record<string, string>;
@@ -92,7 +93,23 @@ export function validateRow(
   }
 }
 
-export function validateForm(form: TravelRequestForm): ValidationResult {
+/**
+ * Shared by Travel Request and Travel Claim: blocks a row whose day-span [date .. date+(N-1)]
+ * crosses into the next UN rate period -- the row can only ever carry one exchange rate, so a
+ * span that crosses a rate change is unrepresentable and must be split into separate rows instead.
+ * No-op when the row has no date/days yet (those already have their own required-field errors) or
+ * when rowDaySpanBoundary finds nothing to check against (see its own doc comment).
+ */
+export function checkRowDaySpanBoundary(row: Row, tripId: string, errors: Record<string, string>, unRates: UnRate[]): void {
+  if (!row.date || row.noOfDays === null || row.noOfDays <= 0) return;
+  const span = rowDaySpanBoundary(row.date, unRates);
+  if (!span || row.noOfDays <= span.maxDays) return;
+  const boundary = formatDateLong(span.boundaryDate);
+  errors[rowFieldKey(tripId, row.id, "noOfDays")] =
+    `This row can be at most ${span.maxDays} day${span.maxDays === 1 ? "" : "s"} — a new exchange rate takes effect on ${boundary}. Reduce No of days and add a separate row starting ${boundary} for the remaining days.`;
+}
+
+export function validateForm(form: TravelRequestForm, unRates: UnRate[]): ValidationResult {
   const errors: Record<string, string> = {};
   const { header, trips, signature } = form;
 
@@ -123,6 +140,7 @@ export function validateForm(form: TravelRequestForm): ValidationResult {
         // Submission Date (always today -- see Fix 1) is the floor for Travel Request, not the
         // selected Month; Month stays a period label/grouping only (subject, filename, body).
         validateRow(row, trip.id, header.month, errors, "floor", header.submissionDate, true);
+        checkRowDaySpanBoundary(row, trip.id, errors, unRates);
       }
     }
   }

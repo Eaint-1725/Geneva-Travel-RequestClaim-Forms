@@ -3,6 +3,7 @@ import { get } from "@vercel/blob";
 import { buildTravelRequestWorkbook } from "@/lib/travel/export-workbook";
 import { validateForm } from "@/lib/travel/validation";
 import { addSubmission } from "@/lib/portal/submissions";
+import { getUnRates } from "@/lib/travel/un-rates-cache";
 import { sendGraphEmailWithAttachments, type GraphEmailAttachmentBuffer } from "@/lib/email/graph";
 import { formatMmk, ordinal, todayIso } from "@/lib/travel/format";
 import { buildSubmissionEmailSubject, buildSubmissionFileName, buildSubmissionLabel } from "@/lib/travel/submission-naming";
@@ -106,7 +107,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // can't be stale, spoofed, or left blank by a form that no longer collects it (see Fix 1).
   form = { ...form, header: { ...form.header, submissionDate: todayIso() } };
 
-  const { isValid, errors } = validateForm(form);
+  const { rates: unRates } = await getUnRates();
+  const { isValid, errors } = validateForm(form, unRates);
   if (!isValid) {
     return NextResponse.json({ error: "The request is missing required fields", errors }, { status: 400 });
   }

@@ -50,7 +50,7 @@ export default function ImportExcelDialog<THeader>({
       if (!res.ok || !body.header || !body.trips || typeof body.submissionNumber !== "number") {
         throw new Error(body.error ?? GENERIC_ERROR);
       }
-      onImported({ header: body.header, trips: body.trips, submissionNumber: body.submissionNumber }, file.name);
+      onImported({ header: body.header, trips: body.trips, submissionNumber: body.submissionNumber, sourceDocType: body.sourceDocType }, file.name);
     } catch (e) {
       setError(e instanceof Error ? e.message : GENERIC_ERROR);
     } finally {

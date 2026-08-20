@@ -105,6 +105,10 @@ export default function TravelClaimPage() {
   // Set once a "Import Excel" upload succeeds -- drives the "Imported from ..." banner and locks
   // the confirm dialog's Submission type to Updated (see handleImported/SubmitNoteDialog).
   const [importedFileName, setImportedFileName] = useState<string | null>(null);
+  // Whether the imported file was a Travel Request export rather than a Travel Claim one --
+  // Claim's importer accepts both (see app/api/travel/claim/import/route.ts); only changes the
+  // banner wording, everything else about the import is identical either way.
+  const [importedFromRequest, setImportedFromRequest] = useState(false);
 
   const [unRates, setUnRates] = useState<UnRate[]>([]);
   const [rateError, setRateError] = useState<string | null>(null);
@@ -371,20 +375,30 @@ export default function TravelClaimPage() {
     setReportScanManualAck(false);
     setReportOverriddenCheckIds(new Set());
     setImportedFileName(null);
+    setImportedFromRequest(false);
     setInteracted(false);
     setApiError(null);
     setNotice(null);
   }
 
-  // Populates the form from a re-imported system-generated Excel (see ImportExcelDialog). Only
-  // the fields the spec calls out get overwritten -- signature/email/documents are left exactly
-  // as they were, since the user redoes those regardless of what's imported. Setting `team` (and
-  // `travelArea` together, atomically) here drives the HIV travel-area dropdown, MAL/HIV Notes,
-  // and the approver block exactly as a manual Team selection would -- all three are already
-  // reactively derived from header state elsewhere in this file, so nothing else needs wiring.
-  // An imported submission is inherently a re-submission of the one that generated the file, so
-  // Submission type is forced to Updated at the SAME number the file was ("Submission 2" stays 2,
-  // not 3) -- see SubmitNoteDialog's lockedToUpdated prop for where "New" gets disabled.
+  // Populates the form from a re-imported system-generated Excel -- either a Travel Claim export
+  // or a Travel Request export for the same trip (see ImportExcelDialog and the claim's own
+  // import route, which accepts both and reports which one via result.sourceDocType). Only the
+  // fields the spec calls out get overwritten -- signature/email/documents are left exactly as
+  // they were, since the user redoes those regardless of what's imported. A Travel Request source
+  // has no travelArea (Claim-only, HIV team) -- the route already sends "" for that case, so it's
+  // left for the user to fill in like a blank manual entry. Setting `team` (and `travelArea`
+  // together, atomically) here drives the HIV travel-area dropdown, MAL/HIV Notes, and the
+  // approver block exactly as a manual Team selection would -- all three are already reactively
+  // derived from header state elsewhere in this file, so nothing else needs wiring. Each row's
+  // exchange rate is never part of the imported data either way -- it's always derived live from
+  // that row's own Date (see resolveRowRate/rateForRow above), so it's already correct for Claim
+  // even when the source was Request's single latest-rate form. An imported submission is
+  // inherently a re-submission of the one that generated the file, so Submission type is forced to
+  // Updated at the SAME number the file was ("Submission 2" stays 2, not 3) -- see
+  // SubmitNoteDialog's lockedToUpdated prop for where "New" gets disabled. Importing a Travel
+  // Request still produces a Travel Claim submission (subject/filename stay TC) -- the import only
+  // seeds the form.
   function handleImported(result: ImportedFormResult<TravelClaimImportPayload["header"]>, fileName: string) {
     setHeader((h) => ({
       ...h,
@@ -399,6 +413,7 @@ export default function TravelClaimPage() {
     setTrips(result.trips.length > 0 ? result.trips : [makeEmptyTrip()]);
     setSubmitMeta({ type: "updated", number: result.submissionNumber, note: "" });
     setImportedFileName(fileName);
+    setImportedFromRequest(result.sourceDocType === "TR");
     setInteracted(true);
     setImportDialogOpen(false);
   }
@@ -512,7 +527,8 @@ export default function TravelClaimPage() {
         </div>
         {importedFileName && (
           <p className="mb-2 rounded bg-primary-light/30 px-3 py-1.5 text-xs text-navy-900" data-testid="travel-claim-imported-notice">
-            Imported from {importedFileName} — this will be submitted as an Update.
+            Imported from {importedFileName}
+            {importedFromRequest ? " (Travel Request)" : ""} — this will be submitted as an Update.
           </p>
         )}
         <div className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-3 md:gap-y-3 lg:flex lg:flex-row lg:flex-wrap lg:items-start lg:gap-2">
@@ -838,7 +854,7 @@ export default function TravelClaimPage() {
         onCancel={() => setImportDialogOpen(false)}
         onImported={handleImported}
         apiUrl="/api/travel/claim/import"
-        docLabel="Travel Claim"
+        docLabel="Travel Claim or Travel Request"
         excludedFieldsNote="Your signature, email, and document uploads (Travel Cover, Travel Report, Voucher, optional docs) won't be imported — you'll redo those."
       />
     </div>

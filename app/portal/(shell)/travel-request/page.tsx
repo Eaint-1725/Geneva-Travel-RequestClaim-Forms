@@ -79,7 +79,7 @@ export default function TravelRequestPage() {
   const [rateRefreshing, setRateRefreshing] = useState(false);
 
   const form: TravelRequestForm = { header, trips, signature, attachments };
-  const { errors, isValid } = useMemo(() => validateForm(form), [header, trips, signature, attachments]);
+  const { errors, isValid } = useMemo(() => validateForm(form, unRates), [header, trips, signature, attachments, unRates]);
   const showErrors = interacted;
 
   const exchangeRate = header.exchangeRate ?? 0;
