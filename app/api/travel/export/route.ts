@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildTravelRequestWorkbook, bufferToArrayBuffer } from "@/lib/travel/export-workbook";
 import { validateForm } from "@/lib/travel/validation";
 import { addSubmission } from "@/lib/portal/submissions";
-import { getUnRates } from "@/lib/travel/un-rates-cache";
 import type { TravelRequestForm } from "@/lib/travel/types";
 
 export const runtime = "nodejs";
@@ -15,8 +14,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { rates: unRates } = await getUnRates();
-  const { isValid, errors } = validateForm(form, unRates);
+  const { isValid, errors } = validateForm(form);
   if (!isValid) {
     return NextResponse.json({ error: "The request is missing required fields", errors }, { status: 400 });
   }

@@ -97,7 +97,7 @@ export function checkRowDaySpanBoundary(row: Row, tripId: string, errors: Record
     `This row can be at most ${span.maxDays} day${span.maxDays === 1 ? "" : "s"} — a new exchange rate takes effect on ${boundary}. Reduce No of days and add a separate row starting ${boundary} for the remaining days.`;
 }
 
-export function validateForm(form: TravelRequestForm, unRates: UnRate[]): ValidationResult {
+export function validateForm(form: TravelRequestForm): ValidationResult {
   const errors: Record<string, string> = {};
   const { header, trips, signature } = form;
 
@@ -128,7 +128,6 @@ export function validateForm(form: TravelRequestForm, unRates: UnRate[]): Valida
         // Submission Date (always today -- see Fix 1) is the floor for Travel Request, not the
         // selected Month; Month stays a period label/grouping only (subject, filename, body).
         validateRow(row, trip.id, header.month, errors, header.submissionDate, true);
-        checkRowDaySpanBoundary(row, trip.id, errors, unRates);
       }
     }
   }

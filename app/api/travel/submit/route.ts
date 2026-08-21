@@ -8,7 +8,6 @@ import { formatMmk, ordinal, todayIso } from "@/lib/travel/format";
 import { buildSubmissionEmailSubject, buildSubmissionFileName, buildSubmissionLabel } from "@/lib/travel/submission-naming";
 import { MAX_TOTAL_ATTACH_BYTES } from "@/lib/travel/request-uploads";
 import { deleteRequestUploadBlobs } from "@/lib/travel/request-uploads-cleanup";
-import { getUnRates } from "@/lib/travel/un-rates-cache";
 import {
   SUBMISSION_NOTE_MAX_LENGTH,
   SUBMISSION_NUMBER_MAX,
@@ -107,11 +106,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // can't be stale, spoofed, or left blank by a form that no longer collects it (see Fix 1).
   form = { ...form, header: { ...form.header, submissionDate: todayIso() } };
 
-  // Re-derive the UN rate history server-side (never trust a client-supplied rate) -- the
-  // same source used to render the rows and to validate them (mirrors claim-export/route.ts).
-  const { rates: unRates } = await getUnRates();
-
-  const { isValid, errors } = validateForm(form, unRates);
+  const { isValid, errors } = validateForm(form);
   if (!isValid) {
     return NextResponse.json({ error: "The request is missing required fields", errors }, { status: 400 });
   }
