@@ -432,7 +432,7 @@ export default function TravelRequestPage() {
         onCancel={handleCancelDialog}
         onConfirm={() => void handleConfirmSend()}
         busy={busy}
-        lockedToUpdated={importedFileName !== null}
+        lockedTo={importedFileName !== null ? "updated" : undefined}
       />
 
       <ImportExcelDialog<TravelRequestImportPayload["header"]>

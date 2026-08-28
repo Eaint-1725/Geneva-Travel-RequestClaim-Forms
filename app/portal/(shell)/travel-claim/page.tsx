@@ -33,7 +33,15 @@ import {
 } from "@/lib/travel/claim/documents";
 import { formatDateLong, formatMmk, formatUsd } from "@/lib/travel/format";
 import { TEAMS } from "@/lib/travel/rates";
-import { makeEmptyTrip, type ImportedFormResult, type Row, type Signature, type SubmissionMeta, type Trip } from "@/lib/travel/types";
+import {
+  makeEmptyTrip,
+  type ImportedFormResult,
+  type Row,
+  type Signature,
+  type SubmissionMeta,
+  type SubmissionType,
+  type Trip,
+} from "@/lib/travel/types";
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
 import ClaimTripBlock from "./ClaimTripBlock";
 import ClaimDocumentField from "./ClaimDocumentField";
@@ -376,6 +384,11 @@ export default function TravelClaimPage() {
     setReportOverriddenCheckIds(new Set());
     setImportedFileName(null);
     setImportedFromRequest(false);
+    // Also unlocks the Submission-type dialog and clears its imported number -- importedLockedTo
+    // already goes undefined once importedFileName resets above, but submitMeta itself (type/
+    // number) was left at whatever the import set it to; without this a Clear followed by a fresh
+    // manual entry would still show the old imported submission number pre-selected.
+    setSubmitMeta(makeEmptySubmitMeta());
     setInteracted(false);
     setApiError(null);
     setNotice(null);
@@ -393,10 +406,12 @@ export default function TravelClaimPage() {
   // derived from header state elsewhere in this file, so nothing else needs wiring. Each row's
   // exchange rate is never part of the imported data either way -- it's always derived live from
   // that row's own Date (see resolveRowRate/rateForRow above), so it's already correct for Claim
-  // even when the source was Request's single latest-rate form. An imported submission is
-  // inherently a re-submission of the one that generated the file, so Submission type is forced to
-  // Updated at the SAME number the file was ("Submission 2" stays 2, not 3) -- see
-  // SubmitNoteDialog's lockedToUpdated prop for where "New" gets disabled. Importing a Travel
+  // even when the source was Request's single latest-rate form. Submission type depends on WHICH
+  // doc type was imported (see result.sourceDocType): a TC re-import is a re-submission of the
+  // claim itself -> forced Updated; a TR import is pulling the original request into a claim for
+  // the first time -> forced New. Either way the submission number is carried over as-is from the
+  // imported file's own filename ("Submission 2" stays 2, not 3) -- see importedLockedTo/
+  // SubmitNoteDialog's lockedTo prop for where the other option gets disabled. Importing a Travel
   // Request still produces a Travel Claim submission (subject/filename stay TC) -- the import only
   // seeds the form.
   function handleImported(result: ImportedFormResult<TravelClaimImportPayload["header"]>, fileName: string) {
@@ -411,9 +426,10 @@ export default function TravelClaimPage() {
       travelArea: result.header.travelArea,
     }));
     setTrips(result.trips.length > 0 ? result.trips : [makeEmptyTrip()]);
-    setSubmitMeta({ type: "updated", number: result.submissionNumber, note: "" });
+    const fromRequest = result.sourceDocType === "TR";
+    setSubmitMeta({ type: fromRequest ? "new" : "updated", number: result.submissionNumber, note: "" });
     setImportedFileName(fileName);
-    setImportedFromRequest(result.sourceDocType === "TR");
+    setImportedFromRequest(fromRequest);
     setInteracted(true);
     setImportDialogOpen(false);
   }
@@ -497,6 +513,15 @@ export default function TravelClaimPage() {
     setDialogOpen(false);
   }
 
+  // Which Submission-type option SubmitNoteDialog must lock to, and why -- undefined (unlocked)
+  // once Clear resets importedFileName. See handleImported for why TR locks to "new" and TC locks
+  // to "updated".
+  const importedLockedTo: SubmissionType | undefined =
+    importedFileName === null ? undefined : importedFromRequest ? "new" : "updated";
+  const importedLockedReason = importedFromRequest
+    ? "Imported from a Travel Request — this will be submitted as a New claim."
+    : "Imported from a previous claim — this will be submitted as an Update.";
+
   return (
     <div data-testid="travel-claim-page">
       <h1 className="mb-1 text-xl font-semibold text-navy-900">Travel Claim</h1>
@@ -528,7 +553,8 @@ export default function TravelClaimPage() {
         {importedFileName && (
           <p className="mb-2 rounded bg-primary-light/30 px-3 py-1.5 text-xs text-navy-900" data-testid="travel-claim-imported-notice">
             Imported from {importedFileName}
-            {importedFromRequest ? " (Travel Request)" : ""} — this will be submitted as an Update.
+            {importedFromRequest ? " (Travel Request)" : ""} — this will be submitted as{" "}
+            {importedFromRequest ? "a New claim" : "an Update"}.
           </p>
         )}
         <div className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-3 md:gap-y-3 lg:flex lg:flex-row lg:flex-wrap lg:items-start lg:gap-2">
@@ -846,7 +872,8 @@ export default function TravelClaimPage() {
         onConfirm={() => void handleConfirmSend()}
         busy={busy}
         kind="claim"
-        lockedToUpdated={importedFileName !== null}
+        lockedTo={importedLockedTo}
+        lockedReason={importedLockedReason}
       />
 
       <ImportExcelDialog<TravelClaimImportPayload["header"]>
