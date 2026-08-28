@@ -206,10 +206,16 @@ export async function buildTravelClaimWorkbook(form: TravelClaimForm, unRates: U
   for (const trip of form.trips) {
     const rowCalcs = trip.rows.map((r) => calcRow(r, rateForRow(r)));
     const tripCalc = calcClaimTrip(trip, rateForRow);
+    // calcRow().perDiemUsd is base per-diem + terminal allowance combined (intentional for the
+    // on-screen form). The Excel shows terminal allowance in its own column (14), so subtracting
+    // it back out here avoids double-showing it in the "Total Per-diem" column -- Excel-only,
+    // does not touch calc.ts or the on-screen totals. Mirrors lib/travel/export-workbook.ts
+    // (Travel Request)'s identical fix.
+    const excelPerDiemUsd = trip.rows.map((r, i) => rowCalcs[i].perDiemUsd - (r.terminalAllowanceUsd ?? 0));
     const tripFirstRow = row;
 
     trip.rows.forEach((r, i) => {
-      writeRow(row, r, i === 0, rateForRow(r), rowCalcs[i].perDiemUsd, rowCalcs[i].amountMmk);
+      writeRow(row, r, i === 0, rateForRow(r), excelPerDiemUsd[i], rowCalcs[i].amountMmk);
       row += 1;
     });
 
@@ -219,7 +225,7 @@ export async function buildTravelClaimWorkbook(form: TravelClaimForm, unRates: U
     }
 
     const subDays = trip.rows.reduce((sum, r) => sum + (r.noOfDays ?? 0), 0);
-    const subPerDiem = tripCalc.subtotalPerDiemUsd;
+    const subPerDiem = excelPerDiemUsd.reduce((sum, v) => sum + v, 0);
     const subTravel = trip.rows.reduce((sum, r) => sum + (r.travelHotelMmk ?? 0), 0);
     const subAir = trip.rows.reduce((sum, r) => sum + (r.airTicketMmk ?? 0), 0);
     const subTerminal = trip.rows.reduce((sum, r) => sum + (r.terminalAllowanceUsd ?? 0), 0);
