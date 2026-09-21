@@ -1,25 +1,103 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 import Field from "@/components/travel/Field";
+import ImportExcelDialog from "@/components/travel/ImportExcelDialog";
 import SignaturePad from "@/components/travel/SignaturePad";
+import SubmitNoteDialog, { isSubmitNoteValid } from "@/components/travel/SubmitNoteDialog";
 import { calcClaimGrandTotal } from "@/lib/travel/claim/calc";
+import { deleteClaimBlobs } from "@/lib/travel/claim/blob-client";
+import { CLAIM_EXCEL_STORAGE_KEY, downloadClaimExcel, type StoredClaimExcel } from "@/lib/travel/claim/excel-download";
 import { resolveRowRate } from "@/lib/travel/claim/rate";
-import { makeEmptyClaimHeader, type TravelClaimForm, type TravelClaimHeader } from "@/lib/travel/claim/types";
+import type { DocScanResult } from "@/lib/travel/claim/document-scan";
+import {
+  makeEmptyClaimDocuments,
+  makeEmptyClaimHeader,
+  type ClaimDocuments,
+  type TravelClaimForm,
+  type TravelClaimHeader,
+  type TravelClaimImportPayload,
+} from "@/lib/travel/claim/types";
 import { validateClaimForm } from "@/lib/travel/claim/validation";
+import {
+  DOC_LABELS,
+  MAX_FILE_BYTES,
+  MAX_TOTAL_ATTACH_BYTES,
+  OPTIONAL_DOC_KEYS,
+  coverReportRequired,
+  formatBytes,
+  totalDocumentBytes,
+  type OptionalDocKey,
+} from "@/lib/travel/claim/documents";
+import { formatDateLong, formatMmk, formatUsd } from "@/lib/travel/format";
 import { TEAMS } from "@/lib/travel/rates";
-import { formatMmk, formatUsd } from "@/lib/travel/format";
-import { makeEmptyTrip, type Row, type Signature, type Trip } from "@/lib/travel/types";
+import {
+  makeEmptyTrip,
+  type ImportedFormResult,
+  type Row,
+  type Signature,
+  type SubmissionMeta,
+  type SubmissionType,
+  type Trip,
+} from "@/lib/travel/types";
 import { formatRateCaption, latestRate, type UnRate, type UnRatesPayload } from "@/lib/travel/un-rates";
 import ClaimTripBlock from "./ClaimTripBlock";
+import ClaimDocumentField from "./ClaimDocumentField";
+import DocScanPanel from "./DocScanPanel";
 
-const inputCls = "rounded border border-gray-300 px-2 py-1.5 text-sm";
+const inputCls = "rounded border border-gray-300 px-2 py-2.5 text-base lg:py-1.5 lg:text-sm";
+
+const EMPTY_CHECKED_DOCS: Record<OptionalDocKey, boolean> = {
+  justification: false,
+  approvedEmail: false,
+  airTicket: false,
+  declaration: false,
+  certificate: false,
+};
+
+function makeEmptySubmitMeta(): SubmissionMeta {
+  return { type: "new", number: null, note: "" };
+}
 
 export default function TravelClaimPage() {
+  const router = useRouter();
   const [header, setHeader] = useState<TravelClaimHeader>(makeEmptyClaimHeader());
   const [trips, setTrips] = useState<Trip[]>([makeEmptyTrip()]);
   const [signature, setSignature] = useState<Signature | null>(null);
+  const [documents, setDocuments] = useState<ClaimDocuments>(makeEmptyClaimDocuments());
+  const [checkedDocs, setCheckedDocs] = useState<Record<OptionalDocKey, boolean>>(EMPTY_CHECKED_DOCS);
+  // Field keys currently mid-upload to Blob -- submit stays disabled until this is empty, so a
+  // click can't race an in-flight upload and submit a claim missing a document the user just added.
+  const [uploadingFields, setUploadingFields] = useState<Set<string>>(new Set());
+
+  // Pre-submit automated scans of the Travel Cover and Travel Report PDFs (see
+  // lib/travel/claim/document-scan). Each starts once that field's own Blob upload finishes (see
+  // ClaimDocumentField's onFileAccepted) -- the scan uses the browser's own File, independent of
+  // Blob storage, but is sequenced after the upload so the two don't compete for the server's
+  // event loop at once. The two documents scan independently (separate state, separate requests)
+  // but gate together -- see docsGateActive below.
+  const [coverScan, setCoverScan] = useState<DocScanResult | null>(null);
+  const [coverScanning, setCoverScanning] = useState(false);
+  // Only meaningful in the scan-outage fallback (scanAvailable:false) -- unlocks the gate via a
+  // manual "I verified it myself" acknowledgement instead of per-check results.
+  const [coverScanManualAck, setCoverScanManualAck] = useState(false);
+  // Per-check overrides for a required check the scan got wrong (see DocScanPanel and the plan
+  // this shipped with, §D) -- ids of checks the user explicitly confirmed are present despite the
+  // scan reporting otherwise. Logged in the submission (coverScanStatus.overriddenChecks) so HR
+  // can see what was bypassed.
+  const [overriddenCheckIds, setOverriddenCheckIds] = useState<Set<string>>(new Set());
+  // Guards a stale in-flight scan response from clobbering state after the file is removed or
+  // replaced with a newer one.
+  const scanRequestIdRef = useRef(0);
+
+  // Same pattern as the cover's scan state, one level down -- see the Travel Report scan plan.
+  const [reportScan, setReportScan] = useState<DocScanResult | null>(null);
+  const [reportScanning, setReportScanning] = useState(false);
+  const [reportScanManualAck, setReportScanManualAck] = useState(false);
+  const [reportOverriddenCheckIds, setReportOverriddenCheckIds] = useState<Set<string>>(new Set());
+  const reportScanRequestIdRef = useRef(0);
 
   // Same interacted/showErrors pattern as Travel Request -- a brand-new blank form shouldn't
   // greet the user with every field already red.
@@ -28,13 +106,71 @@ export default function TravelClaimPage() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [submitMeta, setSubmitMeta] = useState<SubmissionMeta>(makeEmptySubmitMeta());
+
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  // Set once a "Import Excel" upload succeeds -- drives the "Imported from ..." banner and locks
+  // the confirm dialog's Submission type to Updated (see handleImported/SubmitNoteDialog).
+  const [importedFileName, setImportedFileName] = useState<string | null>(null);
+  // Whether the imported file was a Travel Request export rather than a Travel Claim one --
+  // Claim's importer accepts both (see app/api/travel/claim/import/route.ts); only changes the
+  // banner wording, everything else about the import is identical either way.
+  const [importedFromRequest, setImportedFromRequest] = useState(false);
+
   const [unRates, setUnRates] = useState<UnRate[]>([]);
   const [rateError, setRateError] = useState<string | null>(null);
   const [rateRefreshing, setRateRefreshing] = useState(false);
 
-  const form: TravelClaimForm = { header, trips, signature };
-  const { errors, isValid } = useMemo(() => validateClaimForm(form, unRates), [header, trips, signature, unRates]);
+  const form: TravelClaimForm = { header, trips, signature, documents };
+  const { errors, isValid } = useMemo(() => validateClaimForm(form, unRates), [header, trips, signature, documents, unRates]);
   const showErrors = interacted;
+  const coverReport = coverReportRequired(header);
+  const totalBytes = useMemo(() => totalDocumentBytes(documents), [documents]);
+
+  // Every required check not yet "pass" and not explicitly overridden -- see DocScanPanel and
+  // the plan this shipped with (§B/§D). Empty once every required check passes, or every failing
+  // one has been individually overridden.
+  const coverBlockingChecks = useMemo(
+    () => (coverScan?.checks ?? []).filter((c) => c.severity === "block" && c.status !== "pass" && !overriddenCheckIds.has(c.id)),
+    [coverScan, overriddenCheckIds],
+  );
+  const coverScanUnavailable = coverScan?.scanAvailable === false;
+
+  const reportBlockingChecks = useMemo(
+    () => (reportScan?.checks ?? []).filter((c) => c.severity === "block" && c.status !== "pass" && !reportOverriddenCheckIds.has(c.id)),
+    [reportScan, reportOverriddenCheckIds],
+  );
+  const reportScanUnavailable = reportScan?.scanAvailable === false;
+
+  // Sequential unlock (see the plan this shipped with, §C), applied to each document
+  // independently. Keyed off whether a scan actually RAN, not off required-ness: "optional"
+  // (HIV in-town) governs whether the document must be provided, never whether a provided one may
+  // be invalid. So nothing uploaded passes only when the doc isn't required at all; but once a
+  // scan has run -- required or not -- the gate always depends on its real result, same strict
+  // rule as always (a failing/unconfirmed required check blocks until fixed, removed, or
+  // overridden; scan-outage fallback still needs the manual acknowledgement).
+  const coverGatePassed = coverScan
+    ? coverScanUnavailable
+      ? coverScanManualAck
+      : coverBlockingChecks.length === 0
+    : !coverReport;
+  const reportGatePassed = reportScan
+    ? reportScanUnavailable
+      ? reportScanManualAck
+      : reportBlockingChecks.length === 0
+    : !coverReport;
+  // Both must pass for the dependent uploads/submit to unlock (see the plan this shipped with,
+  // §3: "If BOTH the cover and the report are required for the team, BOTH must pass"). No longer
+  // gated on `coverReport` here -- each of the two formulas above already accounts for
+  // required-vs-optional on its own, so this generalizes correctly (an optional doc that was
+  // uploaded and is failing its scan must still block, which `coverReport &&` used to suppress).
+  const docsGatePassed = coverGatePassed && reportGatePassed;
+  const docsGateActive = !docsGatePassed;
+
+  // A ticked optional-doc checkbox requires at least one uploaded file -- same "gate" treatment
+  // as docsGateActive above (client-side only; see Fix 5). Unticked keys are never included here.
+  const optionalDocsGateActive = OPTIONAL_DOC_KEYS.some((key) => checkedDocs[key] && documents[key].length === 0);
 
   const rateForRow = useCallback((row: Row) => resolveRowRate(row.date, unRates)?.rate ?? 0, [unRates]);
   const grandTotal = useMemo(() => calcClaimGrandTotal(trips, rateForRow), [trips, rateForRow]);
@@ -60,9 +196,153 @@ export default function TravelClaimPage() {
     void loadRates(false);
   }, [loadRates]);
 
+  // Team + Travel area together decide whether Travel Cover/Report are required (see
+  // coverReportRequired). Moving away from HIV must hide the dropdown AND clear its value, so a
+  // stale "out_of_town" choice from a previous HIV selection can't keep blocking submit.
+  useEffect(() => {
+    if (header.team !== "HIV" && header.travelArea) {
+      setHeader((h) => ({ ...h, travelArea: "" }));
+    }
+  }, [header.team, header.travelArea]);
+
+  // Removing the Travel Cover file doesn't go through ClaimDocumentField's onFileAccepted (that
+  // only fires on accept, not on remove) -- so watch for the field going empty here instead.
+  // Replacement is handled separately: dropping a new file re-fires onFileAccepted, which already
+  // resets this state before starting a fresh scan.
+  useEffect(() => {
+    if (documents.travelCover.length === 0) {
+      scanRequestIdRef.current++;
+      setCoverScan(null);
+      setCoverScanManualAck(false);
+      setOverriddenCheckIds(new Set());
+      setCoverScanning(false);
+    }
+  }, [documents.travelCover.length]);
+
+  // Same reset as the cover's, for the Travel Report field.
+  useEffect(() => {
+    if (documents.travelReport.length === 0) {
+      reportScanRequestIdRef.current++;
+      setReportScan(null);
+      setReportScanManualAck(false);
+      setReportOverriddenCheckIds(new Set());
+      setReportScanning(false);
+    }
+  }, [documents.travelReport.length]);
+
   function updateHeader<K extends keyof TravelClaimHeader>(field: K, value: TravelClaimHeader[K]) {
     setInteracted(true);
     setHeader((h) => ({ ...h, [field]: value }));
+  }
+
+  function updateDocuments<K extends keyof ClaimDocuments>(field: K, files: ClaimDocuments[K]) {
+    setInteracted(true);
+    setDocuments((d) => ({ ...d, [field]: files }));
+  }
+
+  function setFieldUploading(key: string, uploading: boolean) {
+    setUploadingFields((prev) => {
+      const next = new Set(prev);
+      if (uploading) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  async function handleCoverFileAccepted(file: File) {
+    const requestId = ++scanRequestIdRef.current;
+    setCoverScan(null);
+    setCoverScanManualAck(false);
+    setOverriddenCheckIds(new Set());
+    setCoverScanning(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/travel/claim/scan-cover", { method: "POST", body: fd });
+      const result = (await res.json()) as DocScanResult;
+      if (scanRequestIdRef.current === requestId) setCoverScan(result);
+    } catch {
+      // The route itself already degrades gracefully on a provider error -- this catch only
+      // covers the fetch call failing outright (network blip, non-JSON response, etc).
+      if (scanRequestIdRef.current === requestId) {
+        setCoverScan({
+          checks: [
+            {
+              id: "scan_unavailable",
+              label: "Automated scan",
+              status: "warn",
+              severity: "warn",
+              message: "Automated scan unavailable — please verify the cover manually.",
+            },
+          ],
+          hasBlockingFailure: false,
+          scanAvailable: false,
+        });
+      }
+    } finally {
+      if (scanRequestIdRef.current === requestId) setCoverScanning(false);
+    }
+  }
+
+  function handleOverrideCheck(checkId: string) {
+    setOverriddenCheckIds((prev) => new Set(prev).add(checkId));
+  }
+
+  // Mirrors handleCoverFileAccepted, plus forwards the already-selected team as scan context (the
+  // TU's Clearance rule is team-conditional -- see openai-provider.ts's scanTravelReport).
+  async function handleReportFileAccepted(file: File) {
+    const requestId = ++reportScanRequestIdRef.current;
+    setReportScan(null);
+    setReportScanManualAck(false);
+    setReportOverriddenCheckIds(new Set());
+    setReportScanning(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("team", header.team);
+      const res = await fetch("/api/travel/claim/scan-report", { method: "POST", body: fd });
+      const result = (await res.json()) as DocScanResult;
+      if (reportScanRequestIdRef.current === requestId) setReportScan(result);
+    } catch (e) {
+      // TEMP DIAGNOSTIC (see the Travel Report scan-unavailable investigation) -- remove once
+      // the report path is confirmed working. This client-side catch only fires if the fetch
+      // itself failed or the response wasn't JSON -- the route degrades gracefully otherwise.
+      console.error("[scan-report] client fetch/parse failed", e);
+      if (reportScanRequestIdRef.current === requestId) {
+        setReportScan({
+          checks: [
+            {
+              id: "scan_unavailable",
+              label: "Automated scan",
+              status: "warn",
+              severity: "warn",
+              message: "Automated scan unavailable — please verify the report manually.",
+            },
+          ],
+          hasBlockingFailure: false,
+          scanAvailable: false,
+        });
+      }
+    } finally {
+      if (reportScanRequestIdRef.current === requestId) setReportScanning(false);
+    }
+  }
+
+  function handleReportOverrideCheck(checkId: string) {
+    setReportOverriddenCheckIds((prev) => new Set(prev).add(checkId));
+  }
+
+  function toggleOptionalDoc(key: OptionalDocKey, checked: boolean) {
+    setInteracted(true);
+    setCheckedDocs((c) => ({ ...c, [key]: checked }));
+    if (!checked) {
+      // Unticking drops its files from the submission AND deletes any already-uploaded blob for
+      // it (see Fix 5) -- same optimistic-then-fire-and-forget-delete pattern as
+      // ClaimDocumentField's own removeFile.
+      const removed = documents[key];
+      if (removed.length > 0) deleteClaimBlobs(removed.map((f) => f.url));
+      setDocuments((d) => ({ ...d, [key]: [] }));
+    }
   }
 
   async function handleRefreshRate() {
@@ -94,51 +374,160 @@ export default function TravelClaimPage() {
     setHeader(makeEmptyClaimHeader());
     setTrips([makeEmptyTrip()]);
     setSignature(null);
+    setDocuments(makeEmptyClaimDocuments());
+    setCheckedDocs(EMPTY_CHECKED_DOCS);
+    setCoverScan(null);
+    setCoverScanManualAck(false);
+    setOverriddenCheckIds(new Set());
+    setReportScan(null);
+    setReportScanManualAck(false);
+    setReportOverriddenCheckIds(new Set());
+    setImportedFileName(null);
+    setImportedFromRequest(false);
+    // Also unlocks the Submission-type dialog and clears its imported number -- importedLockedTo
+    // already goes undefined once importedFileName resets above, but submitMeta itself (type/
+    // number) was left at whatever the import set it to; without this a Clear followed by a fresh
+    // manual entry would still show the old imported submission number pre-selected.
+    setSubmitMeta(makeEmptySubmitMeta());
     setInteracted(false);
     setApiError(null);
     setNotice(null);
   }
 
-  async function handleSubmit() {
+  // Populates the form from a re-imported system-generated Excel -- either a Travel Claim export
+  // or a Travel Request export for the same trip (see ImportExcelDialog and the claim's own
+  // import route, which accepts both and reports which one via result.sourceDocType). Only the
+  // fields the spec calls out get overwritten -- signature/email/documents are left exactly as
+  // they were, since the user redoes those regardless of what's imported. A Travel Request source
+  // has no travelArea (Claim-only, HIV team) -- the route already sends "" for that case, so it's
+  // left for the user to fill in like a blank manual entry. Setting `team` (and `travelArea`
+  // together, atomically) here drives the HIV travel-area dropdown, MAL/HIV Notes, and the
+  // approver block exactly as a manual Team selection would -- all three are already reactively
+  // derived from header state elsewhere in this file, so nothing else needs wiring. Each row's
+  // exchange rate is never part of the imported data either way -- it's always derived live from
+  // that row's own Date (see resolveRowRate/rateForRow above), so it's already correct for Claim
+  // even when the source was Request's single latest-rate form. Submission type depends on WHICH
+  // doc type was imported (see result.sourceDocType): a TC re-import is a re-submission of the
+  // claim itself -> forced Updated; a TR import is pulling the original request into a claim for
+  // the first time -> forced New. Either way the submission number is carried over as-is from the
+  // imported file's own filename ("Submission 2" stays 2, not 3) -- see importedLockedTo/
+  // SubmitNoteDialog's lockedTo prop for where the other option gets disabled. Importing a Travel
+  // Request still produces a Travel Claim submission (subject/filename stay TC) -- the import only
+  // seeds the form.
+  function handleImported(result: ImportedFormResult<TravelClaimImportPayload["header"]>, fileName: string) {
+    setHeader((h) => ({
+      ...h,
+      month: result.header.month,
+      team: result.header.team,
+      name: result.header.name,
+      position: result.header.position,
+      dutyStation: result.header.dutyStation,
+      notes: result.header.notes,
+      travelArea: result.header.travelArea,
+    }));
+    setTrips(result.trips.length > 0 ? result.trips : [makeEmptyTrip()]);
+    const fromRequest = result.sourceDocType === "TR";
+    setSubmitMeta({ type: fromRequest ? "new" : "updated", number: result.submissionNumber, note: "" });
+    setImportedFileName(fileName);
+    setImportedFromRequest(fromRequest);
+    setInteracted(true);
+    setImportDialogOpen(false);
+  }
+
+  function handleSubmitClick() {
     setApiError(null);
     setNotice(null);
-    if (!isValid) return;
+    // Keep the existing validation + scan-gating checks first -- the dialog only opens once the
+    // form AND the document scans are both clear; it must never become a way to bypass either.
+    if (!isValid || uploadingFields.size > 0 || docsGateActive || coverScanning || reportScanning || optionalDocsGateActive) return;
+    setDialogOpen(true);
+  }
+
+  async function handleConfirmSend() {
+    if (!isSubmitNoteValid(submitMeta)) return;
+
+    // Attached to the submission payload for HR visibility only (see DocScanStatus) -- never
+    // consulted by validation itself, which is why this is built fresh here rather than kept in
+    // form state.
+    const coverScanStatus = coverReport
+      ? {
+          scanAvailable: coverScan?.scanAvailable ?? true,
+          overriddenChecks: (coverScan?.checks ?? [])
+            .filter((c) => overriddenCheckIds.has(c.id))
+            .map((c) => `${c.id} — ${c.label}`),
+        }
+      : undefined;
+    const reportScanStatus = coverReport
+      ? {
+          scanAvailable: reportScan?.scanAvailable ?? true,
+          overriddenChecks: (reportScan?.checks ?? [])
+            .filter((c) => reportOverriddenCheckIds.has(c.id))
+            .map((c) => `${c.id} — ${c.label}`),
+        }
+      : undefined;
 
     setBusy(true);
     try {
-      const res = await fetch("/api/travel/claim-export", {
+      const res = await fetch("/api/travel/claim/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ form: { ...form, coverScanStatus, reportScanStatus }, meta: submitMeta }),
       });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        excelFileName?: string;
+        excelBase64?: string;
+      };
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Could not generate the file");
+        throw new Error(body.error ?? "Couldn't email HR — please try again");
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      const safeName = (header.name || "travel-claim").replace(/[^a-z0-9]+/gi, "-");
-      a.download = `Travel Claim - ${safeName} - ${header.month || "draft"}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setNotice("Travel claim generated — your download should start automatically.");
+      setDialogOpen(false);
+
+      // Best-effort: the send already succeeded, so a blocked/failed download must never surface
+      // as an error here -- the success page's own fallback link (fed by the same stashed data)
+      // covers the case where the automatic download didn't go through.
+      if (body.excelFileName && body.excelBase64) {
+        const excel: StoredClaimExcel = { fileName: body.excelFileName, base64: body.excelBase64 };
+        try {
+          sessionStorage.setItem(CLAIM_EXCEL_STORAGE_KEY, JSON.stringify(excel));
+        } catch {
+          // Storage full/unavailable (e.g. strict private browsing) -- only the fallback link is lost.
+        }
+        try {
+          downloadClaimExcel(excel);
+        } catch {
+          // Blocked by the browser -- the success page's fallback link is the recovery path.
+        }
+      }
+
+      router.push("/portal/travel-claim/success");
     } catch (e) {
-      setApiError(e instanceof Error ? e.message : "Something went wrong generating the file");
+      setDialogOpen(false);
+      setApiError(e instanceof Error ? e.message : "Couldn't email HR — please try again");
     } finally {
       setBusy(false);
     }
   }
 
+  function handleCancelDialog() {
+    setDialogOpen(false);
+  }
+
+  // Which Submission-type option SubmitNoteDialog must lock to, and why -- undefined (unlocked)
+  // once Clear resets importedFileName. See handleImported for why TR locks to "new" and TC locks
+  // to "updated".
+  const importedLockedTo: SubmissionType | undefined =
+    importedFileName === null ? undefined : importedFromRequest ? "new" : "updated";
+  const importedLockedReason = importedFromRequest
+    ? "Imported from a Travel Request — this will be submitted as a New claim."
+    : "Imported from a previous claim — this will be submitted as an Update.";
+
   return (
     <div data-testid="travel-claim-page">
       <h1 className="mb-1 text-xl font-semibold text-navy-900">Travel Claim</h1>
       <p className="mb-4 text-sm text-gray-500">
-        Fill in every required field and add each trip — each row's exchange rate is derived automatically from its own date. The
-        Submit button unlocks once everything checks out, then we generate the Excel travel claim for you.
+        Fill in every required field, add each trip, and attach your supporting documents — each row&apos;s exchange rate is derived
+        automatically from its own date. The Submit button unlocks once everything checks out, then we email HR the completed travel claim.
       </p>
 
       {apiError && <p className="mb-2 rounded bg-red-50 px-3 py-1.5 text-sm text-red-700" data-testid="travel-claim-submit-error">{apiError}</p>}
@@ -150,29 +539,68 @@ export default function TravelClaimPage() {
       )}
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5" data-testid="travel-claim-header-card">
-        <h2 className="mb-2 text-sm font-semibold text-navy-900">Claim details</h2>
-        <div className="flex flex-wrap items-end gap-2">
-          <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-36">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-navy-900">Claim details</h2>
+          <button
+            type="button"
+            onClick={() => setImportDialogOpen(true)}
+            className="rounded border border-primary px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary-light/30"
+            data-testid="travel-claim-import-btn"
+          >
+            Import Excel
+          </button>
+        </div>
+        {importedFileName && (
+          <p className="mb-2 rounded bg-primary-light/30 px-3 py-1.5 text-xs text-navy-900" data-testid="travel-claim-imported-notice">
+            Imported from {importedFileName}
+            {importedFromRequest ? " (Travel Request)" : ""} — this will be submitted as{" "}
+            {importedFromRequest ? "a New claim" : "an Update"}.
+          </p>
+        )}
+        <div className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-3 md:gap-y-3 lg:flex lg:flex-row lg:flex-wrap lg:items-start lg:gap-2">
+          <Field label="Month" error={showErrors ? errors["header.month"] : undefined} width="w-full lg:w-36">
             <input type="month" className={`${inputCls} w-full`} value={header.month} onChange={(e) => updateHeader("month", e.target.value)} data-testid="travel-claim-month" />
           </Field>
-          <Field label="Submission Date" error={showErrors ? errors["header.submissionDate"] : undefined} width="w-40">
-            <input type="date" className={`${inputCls} w-full`} value={header.submissionDate} onChange={(e) => updateHeader("submissionDate", e.target.value)} data-testid="travel-claim-submission-date" />
+          <Field label="Submission Date" width="w-full lg:w-40">
+            <p className={`${inputCls} w-full bg-gray-50 text-gray-700`} data-testid="travel-claim-submission-date">
+              {formatDateLong(header.submissionDate)}
+            </p>
           </Field>
-          <Field label="Team" error={showErrors ? errors["header.team"] : undefined} width="w-32">
+          <Field label="Team" error={showErrors ? errors["header.team"] : undefined} width="w-full lg:w-32">
             <select className={`${inputCls} w-full`} value={header.team} onChange={(e) => updateHeader("team", e.target.value)} data-testid="travel-claim-team">
               <option value="">— select —</option>
               {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </Field>
-          <Field label="Name of traveller" error={showErrors ? errors["header.name"] : undefined} width="w-48">
+          <Field label="Name of traveller" error={showErrors ? errors["header.name"] : undefined} width="w-full lg:w-48">
             <input type="text" className={`${inputCls} w-full`} value={header.name} onChange={(e) => updateHeader("name", e.target.value)} data-testid="travel-claim-name" />
           </Field>
-          <Field label="Position" error={showErrors ? errors["header.position"] : undefined} width="w-32">
+          <Field label="Position" error={showErrors ? errors["header.position"] : undefined} width="w-full lg:w-56">
             <input type="text" className={`${inputCls} w-full`} value={header.position} onChange={(e) => updateHeader("position", e.target.value)} data-testid="travel-claim-position" />
           </Field>
-          <Field label="Duty Station" error={showErrors ? errors["header.dutyStation"] : undefined} width="w-36">
+          <Field label="Duty Station" error={showErrors ? errors["header.dutyStation"] : undefined} width="w-full lg:w-56">
             <input type="text" className={`${inputCls} w-full`} value={header.dutyStation} onChange={(e) => updateHeader("dutyStation", e.target.value)} data-testid="travel-claim-duty-station" />
           </Field>
+          {header.team === "HIV" && (
+            <Field
+              label="Travel area"
+              error={showErrors ? errors["header.travelArea"] : undefined}
+              hint="Out-of-town travel requires the Travel Cover and Travel Report."
+              hintTestId="travel-claim-travel-area-hint"
+              width="w-full lg:w-72"
+            >
+              <select
+                className={`${inputCls} w-full`}
+                value={header.travelArea}
+                onChange={(e) => updateHeader("travelArea", e.target.value as TravelClaimHeader["travelArea"])}
+                data-testid="travel-claim-travel-area"
+              >
+                <option value="">Select…</option>
+                <option value="in_town">In-town (within duty station)</option>
+                <option value="out_of_town">Out-of-town (outside duty station)</option>
+              </select>
+            </Field>
+          )}
         </div>
 
         <p className="mt-3 text-[11px] text-gray-500" data-testid="travel-claim-rate-status">
@@ -188,7 +616,7 @@ export default function TravelClaimPage() {
           </button>
         </p>
 
-        {header.team === "MAL" && (
+        {(header.team === "MAL" || header.team === "HIV") && (
           <div className="mt-3">
             <Field label="Notes" error={showErrors ? errors["header.notes"] : undefined} width="w-full">
               <textarea
@@ -224,13 +652,14 @@ export default function TravelClaimPage() {
             onRemove={() => removeTrip(trip.id)}
             canRemove={trips.length > 1}
             errors={showErrors ? errors : {}}
+            submissionDate={header.submissionDate}
           />
         ))}
 
         <button
           type="button"
           onClick={addTrip}
-          className="rounded border border-primary px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary-light/30"
+          className="w-full rounded border border-primary px-3 py-2.5 text-base font-medium text-primary hover:bg-primary-light/30 lg:w-auto lg:py-1.5 lg:text-sm"
           data-testid="travel-claim-add-trip"
         >
           Add trip
@@ -245,24 +674,216 @@ export default function TravelClaimPage() {
         </p>
       </div>
 
+      <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5" data-testid="travel-claim-documents-card">
+        <h2 className="mb-1 text-sm font-semibold text-navy-900">Supporting documents</h2>
+        <p className="mb-3 text-sm text-gray-500">
+          Per-file limit {formatBytes(MAX_FILE_BYTES)}. Total uploaded so far: <strong data-testid="travel-claim-documents-total">{formatBytes(totalBytes)}</strong>
+          {totalBytes > MAX_TOTAL_ATTACH_BYTES
+            ? " — some files will be emailed to HR as secure download links instead of attachments (still delivered, just not attached)."
+            : `, within the ${formatBytes(MAX_TOTAL_ATTACH_BYTES)} email attachment budget.`}
+        </p>
+
+        {docsGateActive && (
+          <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700" data-testid="travel-claim-doc-gate-notice">
+            <p className="font-medium">Fix the Travel Cover/Report below before uploading the Voucher/optional documents or submitting:</p>
+            <ul className="ml-4 list-disc">
+              {!coverGatePassed && !coverScan && <li>Upload the Travel Cover PDF below to run the automated check.</li>}
+              {!coverGatePassed && coverScan && coverScanUnavailable && (
+                <li>Travel Cover: automated scan unavailable — tick the acknowledgement below its checklist to continue.</li>
+              )}
+              {!coverGatePassed &&
+                coverScan &&
+                !coverScanUnavailable &&
+                coverBlockingChecks.map((c) => <li key={`cover-${c.id}`}>Travel Cover: {c.message}</li>)}
+              {!reportGatePassed && !reportScan && <li>Upload the Travel Report PDF below to run the automated check.</li>}
+              {!reportGatePassed && reportScan && reportScanUnavailable && (
+                <li>Travel Report: automated scan unavailable — tick the acknowledgement below its checklist to continue.</li>
+              )}
+              {!reportGatePassed &&
+                reportScan &&
+                !reportScanUnavailable &&
+                reportBlockingChecks.map((c) => <li key={`report-${c.id}`}>Travel Report: {c.message}</li>)}
+            </ul>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <ClaimDocumentField
+            label="Travel Request (PDF, required)"
+            testid="travel-claim-doc-travelRequest"
+            pdfOnly
+            files={documents.travelRequest}
+            onChange={(files) => updateDocuments("travelRequest", files)}
+            error={showErrors ? errors["documents.travelRequest"] : undefined}
+            disabled={busy}
+            onUploadingChange={(u) => setFieldUploading("travelRequest", u)}
+          />
+          <div>
+            <ClaimDocumentField
+              label={`Travel Cover (PDF, ${coverReport ? "required" : "optional for in-town travel"})`}
+              testid="travel-claim-doc-travelCover"
+              pdfOnly
+              files={documents.travelCover}
+              onChange={(files) => updateDocuments("travelCover", files)}
+              onFileAccepted={(file) => void handleCoverFileAccepted(file)}
+              error={showErrors ? errors["documents.travelCover"] : undefined}
+              disabled={busy}
+              onUploadingChange={(u) => setFieldUploading("travelCover", u)}
+            />
+            <DocScanPanel
+              idPrefix="travel-claim-cover-scan"
+              docLabel="cover"
+              scan={coverScan}
+              scanning={coverScanning}
+              manualAck={coverScanManualAck}
+              onManualAckChange={setCoverScanManualAck}
+              overriddenCheckIds={overriddenCheckIds}
+              onOverrideCheck={handleOverrideCheck}
+            />
+          </div>
+          <div>
+            <ClaimDocumentField
+              label={`Travel Report (PDF, ${coverReport ? "required" : "optional for in-town travel"})`}
+              testid="travel-claim-doc-travelReport"
+              pdfOnly
+              files={documents.travelReport}
+              onChange={(files) => updateDocuments("travelReport", files)}
+              onFileAccepted={(file) => void handleReportFileAccepted(file)}
+              error={showErrors ? errors["documents.travelReport"] : undefined}
+              disabled={busy}
+              onUploadingChange={(u) => setFieldUploading("travelReport", u)}
+            />
+            <DocScanPanel
+              idPrefix="travel-claim-report-scan"
+              docLabel="report"
+              scan={reportScan}
+              scanning={reportScanning}
+              manualAck={reportScanManualAck}
+              onManualAckChange={setReportScanManualAck}
+              overriddenCheckIds={reportOverriddenCheckIds}
+              onOverrideCheck={handleReportOverrideCheck}
+            />
+          </div>
+          <ClaimDocumentField
+            label="Voucher (required, multiple files allowed)"
+            testid="travel-claim-doc-voucher"
+            multiple
+            files={documents.voucher}
+            onChange={(files) => updateDocuments("voucher", files)}
+            error={showErrors ? errors["documents.voucher"] : undefined}
+            disabled={busy || docsGateActive}
+            onUploadingChange={(u) => setFieldUploading("voucher", u)}
+          />
+        </div>
+
+        <div className="mt-4 space-y-3 border-t border-gray-100 pt-3">
+          <p className="text-xs font-medium text-gray-600">Optional documents</p>
+          {OPTIONAL_DOC_KEYS.map((key) => (
+            <div key={key}>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={checkedDocs[key]}
+                  onChange={(e) => toggleOptionalDoc(key, e.target.checked)}
+                  disabled={busy || docsGateActive}
+                  data-testid={`travel-claim-doc-${key}-checkbox`}
+                />
+                {DOC_LABELS[key]}
+              </label>
+              {checkedDocs[key] && (
+                <div className="ml-6 mt-1">
+                  <ClaimDocumentField
+                    label={DOC_LABELS[key]}
+                    testid={`travel-claim-doc-${key}`}
+                    multiple
+                    files={documents[key]}
+                    onChange={(files) => updateDocuments(key, files)}
+                    disabled={busy || docsGateActive}
+                    onUploadingChange={(u) => setFieldUploading(key, u)}
+                  />
+                  {documents[key].length === 0 && (
+                    <p className="mt-1 text-xs text-red-600" data-testid={`travel-claim-doc-${key}-required-error`}>
+                      {DOC_LABELS[key]} is required — upload the file or untick it.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5" data-testid="travel-claim-signature-card">
         <h2 className="mb-1 text-sm font-semibold text-navy-900">Employee signature</h2>
         <p className="mb-2 text-sm text-gray-500">Draw your signature or upload an image. Required.</p>
         <SignaturePad value={signature} onChange={updateSignature} />
         {showErrors && errors["signature"] && <p className="mt-1 text-xs text-red-600" data-testid="travel-claim-signature-error">{errors["signature"]}</p>}
+
+        <div className="mt-3">
+          <Field label="Your email" error={showErrors ? errors["header.email"] : undefined} width="w-full lg:w-64">
+            <input
+              type="email"
+              className={`${inputCls} w-full`}
+              value={header.email}
+              onChange={(e) => updateHeader("email", e.target.value)}
+              data-testid="travel-claim-email"
+            />
+          </Field>
+          <p className="mt-0.5 text-[11px] text-gray-500">
+            Your own email (personal Gmail is fine) — HR will reply to your travel claim here.
+          </p>
+        </div>
       </div>
 
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5">
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="primary" onClick={() => void handleSubmit()} disabled={busy || !isValid} data-testid="travel-claim-submit-btn">
-            {busy ? "Generating…" : "Submit travel claim"}
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+          <Button
+            type="button"
+            variant="primary"
+            onClick={handleSubmitClick}
+            disabled={busy || !isValid || uploadingFields.size > 0 || coverScanning || reportScanning || docsGateActive || optionalDocsGateActive}
+            className="max-lg:min-h-[44px] max-lg:w-full"
+            data-testid="travel-claim-submit-btn"
+          >
+            {busy ? "Sending…" : uploadingFields.size > 0 ? "Uploading…" : "Submit travel claim"}
           </Button>
-          <Button type="button" variant="secondary" onClick={handleClear} disabled={busy} data-testid="travel-claim-clear-btn">
+          <Button type="button" variant="secondary" onClick={handleClear} disabled={busy} className="max-lg:min-h-[44px] max-lg:w-full" data-testid="travel-claim-clear-btn">
             Clear
           </Button>
         </div>
         {!isValid && <p className="mt-1 text-xs text-gray-400">Fill in every required field above to enable submit.</p>}
+        {isValid && uploadingFields.size > 0 && <p className="mt-1 text-xs text-gray-400">Waiting for uploads to finish…</p>}
+        {isValid && uploadingFields.size === 0 && (coverScanning || reportScanning) && (
+          <p className="mt-1 text-xs text-gray-400">Checking the Travel Cover/Report…</p>
+        )}
+        {isValid && uploadingFields.size === 0 && !coverScanning && !reportScanning && docsGateActive && (
+          <p className="mt-1 text-xs text-red-600">The Travel Cover/Report has a blocking issue above that must be resolved (or overridden) before submitting.</p>
+        )}
+        {isValid && uploadingFields.size === 0 && !coverScanning && !reportScanning && !docsGateActive && optionalDocsGateActive && (
+          <p className="mt-1 text-xs text-red-600">Upload a file for each ticked optional document above, or untick it, before submitting.</p>
+        )}
       </div>
+
+      <SubmitNoteDialog
+        open={dialogOpen}
+        meta={submitMeta}
+        onChange={setSubmitMeta}
+        onCancel={handleCancelDialog}
+        onConfirm={() => void handleConfirmSend()}
+        busy={busy}
+        kind="claim"
+        lockedTo={importedLockedTo}
+        lockedReason={importedLockedReason}
+      />
+
+      <ImportExcelDialog<TravelClaimImportPayload["header"]>
+        open={importDialogOpen}
+        onCancel={() => setImportDialogOpen(false)}
+        onImported={handleImported}
+        apiUrl="/api/travel/claim/import"
+        docLabel="Travel Claim or Travel Request"
+        excludedFieldsNote="Your signature, email, and document uploads (Travel Cover, Travel Report, Voucher, optional docs) won't be imported — you'll redo those."
+      />
     </div>
   );
 }

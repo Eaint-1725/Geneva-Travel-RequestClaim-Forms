@@ -1,3 +1,5 @@
+import type { SubmissionDocType } from "./submission-naming";
+
 export interface TravelRequestHeader {
   month: string; // YYYY-MM
   submissionDate: string; // YYYY-MM-DD
@@ -68,6 +70,20 @@ export interface TravelRequestForm {
 export interface TravelRequestImportPayload {
   header: Pick<TravelRequestHeader, "month" | "team" | "name" | "position" | "dutyStation" | "notes">;
   trips: Trip[];
+}
+
+/** What an Import Excel flow resolves to, shared by Travel Request and Travel Claim (see
+ * components/travel/ImportExcelDialog.tsx) -- generic over the header shape since the two forms'
+ * headers differ (e.g. Claim's travelArea), but both reuse the same Trip[] and the same
+ * "submission number comes from the filename, not the embedded data" rule. */
+export interface ImportedFormResult<THeader> {
+  header: THeader;
+  trips: Trip[];
+  submissionNumber: number;
+  /** Which submission type the source file actually was ("TR" or "TC") -- only meaningful where
+   * an importer can accept more than one doc type (currently just Travel Claim's, which also
+   * accepts a Travel Request export); absent from Travel Request's own import response. */
+  sourceDocType?: SubmissionDocType;
 }
 
 /** Whether this submission is brand new or replaces one HR already received -- drives the

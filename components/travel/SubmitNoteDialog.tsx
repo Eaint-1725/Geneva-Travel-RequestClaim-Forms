@@ -12,10 +12,12 @@ import Button from "@/components/Button";
 
 const inputCls = "w-full rounded border border-gray-300 px-2 py-2.5 text-base lg:py-1.5 lg:text-sm";
 
-const OPTIONS: { value: SubmissionType; label: string; hint?: string }[] = [
-  { value: "new", label: "New request" },
-  { value: "updated", label: "Updated request", hint: "I've already submitted this and need to change something" },
-];
+function optionsFor(kind: "request" | "claim"): { value: SubmissionType; label: string; hint?: string }[] {
+  return [
+    { value: "new", label: `New ${kind}` },
+    { value: "updated", label: `Updated ${kind}`, hint: "I've already submitted this and need to change something" },
+  ];
+}
 
 const SUBMISSION_NUMBERS = Array.from(
   { length: SUBMISSION_NUMBER_MAX - SUBMISSION_NUMBER_MIN + 1 },
@@ -27,6 +29,9 @@ export function isSubmitNoteValid(meta: SubmissionMeta): boolean {
   return meta.type === "updated" ? meta.note.trim().length > 0 : true;
 }
 
+// Shared by Travel Request and Travel Claim -- the dialog copy, gating, and testids are
+// identical between the two, only the "request"/"claim" noun differs (see `kind`). Defaults to
+// "request" so Travel Request's call site doesn't need to change at all.
 export default function SubmitNoteDialog({
   open,
   meta,
@@ -34,7 +39,9 @@ export default function SubmitNoteDialog({
   onCancel,
   onConfirm,
   busy,
-  lockedToUpdated,
+  kind = "request",
+  lockedTo,
+  lockedReason,
 }: {
   open: boolean;
   meta: SubmissionMeta;
@@ -42,14 +49,22 @@ export default function SubmitNoteDialog({
   onCancel: () => void;
   onConfirm: () => void;
   busy: boolean;
-  /** Set when the form was populated via Import Excel -- an imported submission is inherently a
-   * re-submission of an existing one, so "New request" is disabled rather than just defaulted. */
-  lockedToUpdated?: boolean;
+  kind?: "request" | "claim";
+  /** Set when the form was populated via Import Excel -- the submission type must match what the
+   * imported file actually was, so the OTHER option is disabled rather than just defaulted. Travel
+   * Request's import is always a re-submission of itself (locks to "updated"); Travel Claim's
+   * import also accepts a Travel Request source, which is a first-time claim (locks to "new") --
+   * see the claim page's handleImported for how sourceDocType decides this. */
+  lockedTo?: SubmissionType;
+  /** Reason line shown under the locked options; falls back to a generic "must be sent as an
+   * update" message (matching lockedTo="updated") when omitted. */
+  lockedReason?: string;
 }) {
   if (!open) return null;
 
   const noteRequired = meta.type === "updated";
   const canSend = isSubmitNoteValid(meta) && !busy;
+  const options = optionsFor(kind);
 
   return (
     <div
@@ -61,12 +76,12 @@ export default function SubmitNoteDialog({
     >
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-gray-200 bg-white p-5 shadow-lg">
         <h2 className="mb-1 text-base font-semibold text-navy-900">Before we send this to HR</h2>
-        <p className="mb-3 text-sm text-gray-500">Let HR know whether this is a new request or a change to one already sent.</p>
+        <p className="mb-3 text-sm text-gray-500">Let HR know whether this is a new {kind} or a change to one already sent.</p>
 
         <fieldset className="mb-3 flex flex-col gap-2">
           <legend className="mb-0.5 block text-[11px] text-gray-500">Submission type</legend>
-          {OPTIONS.map((opt) => {
-            const disabled = lockedToUpdated && opt.value === "new";
+          {options.map((opt) => {
+            const disabled = lockedTo !== undefined && opt.value !== lockedTo;
             return (
               <label
                 key={opt.value}
@@ -90,9 +105,9 @@ export default function SubmitNoteDialog({
               </label>
             );
           })}
-          {lockedToUpdated && (
+          {lockedTo && (
             <p className="text-[11px] text-gray-500" data-testid="travel-submit-dialog-locked-note">
-              Imported from an existing submission — this must be sent as an update.
+              {lockedReason ?? "Imported from an existing submission — this must be sent as an update."}
             </p>
           )}
         </fieldset>
