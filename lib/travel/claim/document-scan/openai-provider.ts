@@ -1,6 +1,7 @@
 import { DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
 import type { Canvas } from "@napi-rs/canvas";
 import OpenAI from "openai";
+import * as pdfjsWorker from "pdfjs-dist/legacy/build/pdf.worker.mjs";
 import { createIsomorphicCanvasFactory, definePDFJSModule, getDocumentProxy } from "unpdf";
 import { TEAMS } from "@/lib/travel/rates";
 import type { DocCheck, DocScanProvider, DocScanResult, ReportScanContext } from "./types";
@@ -16,6 +17,21 @@ import type { DocCheck, DocScanProvider, DocScanResult, ReportScanContext } from
 globalThis.Path2D ??= Path2D as unknown as typeof globalThis.Path2D;
 globalThis.DOMMatrix ??= DOMMatrix as unknown as typeof globalThis.DOMMatrix;
 globalThis.ImageData ??= ImageData as unknown as typeof globalThis.ImageData;
+
+// In Node, pdfjs-dist never spawns a real Worker thread -- it always runs its "fake"/loopback
+// worker in-process (see PDFWorker's static init: isNodeJS forces #isWorkerDisabled = true). But
+// even that in-process path still needs the WorkerMessageHandler code from pdf.worker.mjs, and by
+// default it fetches that via a runtime `import(GlobalWorkerOptions.workerSrc)` -- a *dynamic*
+// import built from a string, not a static one. Vercel's build-time file tracer can't follow that
+// to know pdf.worker.mjs needs to ship with the function, so on Vercel it silently got pruned from
+// the deployed bundle: every real scan failed with "Setting up fake worker failed: Cannot find
+// module '.../pdfjs-dist/legacy/build/pdf.worker.mjs'", caught by the scan-cover/scan-report
+// routes' outer try/catch and reported as a graceful scanAvailable:false stub -- see those routes'
+// try/catch and unavailableResult below. Statically importing pdf.worker.mjs ourselves (so the
+// tracer sees it as an ordinary dependency and includes it) and pre-populating
+// globalThis.pdfjsWorker makes pdfjs's own worker-setup check it first and skip the dynamic
+// import/workerSrc lookup entirely -- see PDFWorker's #mainThreadWorkerMessageHandler getter.
+(globalThis as unknown as { pdfjsWorker: typeof pdfjsWorker }).pdfjsWorker = pdfjsWorker;
 
 // OpenAI vision implementation of DocScanProvider -- rasterizes a claim document (Travel Cover or
 // Travel Report) to one JPEG per page ourselves (see rasterizePdfPage/rasterizeAllPages below),
@@ -60,6 +76,16 @@ globalThis.ImageData ??= ImageData as unknown as typeof globalThis.ImageData;
 // never told the team at all.
 
 const DEFAULT_MODEL = "gpt-4o";
+
+// Trimmed and treated the same way SCAN_PROVIDER is in index.ts: a value that's empty after
+// trimming (unset, blank, or accidentally set to stray whitespace/quotes) must fall through to
+// DEFAULT_MODEL rather than being sent to OpenAI as-is -- an untrimmed `||` here previously let an
+// env var holding the literal two-character string `""` through as a truthy "model name", which
+// OpenAI then rejected with a 404 model_not_found.
+function resolveScanModel(): string {
+  const configured = process.env.OPENAI_SCAN_MODEL?.trim();
+  return configured || DEFAULT_MODEL;
+}
 
 // ~200 DPI (PDF points are 1/72in) -- stepped up from the previous 150 baseline (~1600-1800px long
 // edge) to read handwriting more reliably at detail:"high", while staying well short of the 300
@@ -597,7 +623,7 @@ export class OpenAiDocScanProvider implements DocScanProvider {
 
   private async runCoverScan(pdf: Buffer): Promise<DocScanResult> {
     const client = new OpenAI({ apiKey: this.apiKey });
-    const model = process.env.OPENAI_SCAN_MODEL || DEFAULT_MODEL;
+    const model = resolveScanModel();
     const pageImages = await rasterizeAllPages(pdf);
 
     let raw: RawModelResult | null;
@@ -623,7 +649,7 @@ export class OpenAiDocScanProvider implements DocScanProvider {
 
   private async runReportScan(pdf: Buffer, context: ReportScanContext): Promise<DocScanResult> {
     const client = new OpenAI({ apiKey: this.apiKey });
-    const model = process.env.OPENAI_SCAN_MODEL || DEFAULT_MODEL;
+    const model = resolveScanModel();
     const pageImages = await rasterizeAllPages(pdf);
 
     let raw: RawModelResult | null;
