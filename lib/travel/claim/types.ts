@@ -16,12 +16,6 @@ export interface TravelClaimHeader {
   notes: string;
   /** Traveller's own email -- used as Reply-To on the HR notification, same role as the request's header.email. */
   email: string;
-  /**
-   * In-town/Out-of-town, HIV team only -- decides whether Travel Cover/Report are required
-   * (see coverReportRequired in ./documents.ts). Empty for every other team, and also the
-   * fail-safe "not yet chosen" state for HIV -- treated as required, same as out-of-town.
-   */
-  travelArea: "" | "in_town" | "out_of_town";
 }
 
 /** One file already uploaded to Vercel Blob -- the form only ever holds the resulting metadata/URL, never raw bytes. */
@@ -62,7 +56,6 @@ export interface TravelClaimForm {
   trips: Trip[];
   signature: Signature | null;
   documents: ClaimDocuments;
-  /** Both absent when the Travel Cover/Report aren't required for this team/location (see coverReportRequired) -- they're gated together, so either both are present or neither is. */
   coverScanStatus?: DocScanStatus;
   reportScanStatus?: DocScanStatus;
 }
@@ -79,7 +72,6 @@ export function makeEmptyClaimHeader(): TravelClaimHeader {
     dutyStation: "",
     notes: "",
     email: "",
-    travelArea: "",
   };
 }
 
@@ -88,7 +80,7 @@ export function makeEmptyClaimHeader(): TravelClaimHeader {
  * re-submission. Deliberately excludes Signature/email/submissionDate/documents -- those are
  * never re-imported (redone by the user, or server-derived at submit time). */
 export interface TravelClaimImportPayload {
-  header: Pick<TravelClaimHeader, "month" | "team" | "name" | "position" | "dutyStation" | "notes" | "travelArea">;
+  header: Pick<TravelClaimHeader, "month" | "team" | "name" | "position" | "dutyStation" | "notes">;
   trips: Trip[];
 }
 

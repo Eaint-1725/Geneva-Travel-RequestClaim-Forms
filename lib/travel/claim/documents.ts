@@ -2,7 +2,7 @@
 // the size/type rules in the Travel Claim spec, so the client-side reject message and the
 // server-side attach/link decision never drift apart.
 
-import type { ClaimDocuments, TravelClaimHeader } from "./types";
+import type { ClaimDocuments } from "./types";
 
 /**
  * Per-file cap: reject at selection, before the file ever reaches the upload route.
@@ -61,15 +61,4 @@ export function totalDocumentBytes(documents: ClaimDocuments): number {
     (sum, key) => sum + documents[key].reduce((s, f) => s + f.size, 0),
     0,
   );
-}
-
-/**
- * Travel Cover/Report are always required, EXCEPT for HIV team travelling in-town.
- * A blank team (not yet chosen), or HIV with Travel area not yet chosen, is treated as
- * "required" -- the fail-safe default. An unselected dropdown must never silently skip the
- * Cover/Report requirement, so only an explicit "in_town" choice makes them optional.
- */
-export function coverReportRequired(header: Pick<TravelClaimHeader, "team" | "travelArea">): boolean {
-  if (header.team !== "HIV") return true;
-  return header.travelArea !== "in_town";
 }

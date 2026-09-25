@@ -2,7 +2,6 @@ import { checkRowDaySpanBoundary, rowFieldKey, validateRow } from "../validation
 import type { UnRate } from "../un-rates";
 import { resolveRowRate } from "./rate";
 import type { TravelClaimForm } from "./types";
-import { coverReportRequired } from "./documents";
 
 export interface ValidationResult {
   errors: Record<string, string>;
@@ -34,20 +33,15 @@ export function validateClaimForm(form: TravelClaimForm, unRates: UnRate[]): Val
   if (!header.email.trim()) errors["header.email"] = "Email is required";
   else if (!EMAIL_RE.test(header.email.trim())) errors["header.email"] = "Enter a valid email address";
 
-  if (header.team === "HIV" && !header.travelArea) {
-    errors["header.travelArea"] = "Please select the travel area";
-  }
-
   if ((header.team === "MAL" || header.team === "HIV") && !header.notes.trim()) errors["header.notes"] = "Notes is required";
 
   if (documents.travelRequest.length > 1) errors["documents.travelRequest"] = "Only one Travel Request file is allowed";
   else if (documents.travelRequest.length === 0) errors["documents.travelRequest"] = "Attach the Travel Request PDF";
 
-  const coverReport = coverReportRequired(header);
   if (documents.travelCover.length > 1) errors["documents.travelCover"] = "Only one Travel Cover file is allowed";
-  else if (coverReport && documents.travelCover.length === 0) errors["documents.travelCover"] = "Attach the Travel Cover PDF";
+  else if (documents.travelCover.length === 0) errors["documents.travelCover"] = "Attach the Travel Cover PDF";
   if (documents.travelReport.length > 1) errors["documents.travelReport"] = "Only one Travel Report file is allowed";
-  else if (coverReport && documents.travelReport.length === 0) errors["documents.travelReport"] = "Attach the Travel Report PDF";
+  else if (documents.travelReport.length === 0) errors["documents.travelReport"] = "Attach the Travel Report PDF";
 
   if (documents.voucher.length === 0) errors["documents.voucher"] = "Attach at least one Voucher file";
 

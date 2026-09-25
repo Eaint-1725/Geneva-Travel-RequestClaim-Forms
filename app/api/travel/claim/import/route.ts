@@ -9,9 +9,7 @@ import type { TravelRequestImportPayload } from "@/lib/travel/types";
 // claim re-submission -- letting a user start their claim from the request they already filed for
 // the same trip. The filename gates entry (must exactly match buildSubmissionFileName's TC or TR
 // format); the embedded __data sheet (see lib/travel/excel-embed.ts) is the actual data source --
-// never parsed cells. A TR source has no `travelArea` (Claim-only field, HIV team) -- left "" for
-// the user to fill in, same as a blank manual entry; normal claim validation requires it where
-// needed. Mirrors app/api/travel/import/route.ts (Travel Request's own importer, TR-only).
+// never parsed cells. Mirrors app/api/travel/import/route.ts (Travel Request's own importer, TR-only).
 
 export const runtime = "nodejs";
 
@@ -77,9 +75,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!payload) {
       return NextResponse.json({ error: NO_EMBEDDED_DATA_ERROR }, { status: 422 });
     }
-    // Travel Request's payload has no travelArea (Claim-only, HIV team) -- left blank for the
-    // user to fill in; normal claim validation requires it where needed (see validateClaimForm).
-    header = { ...payload.header, travelArea: "" };
+    header = payload.header;
     trips = payload.trips;
   }
 
