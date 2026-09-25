@@ -10,10 +10,10 @@ const GENERIC_ERROR = "Couldn't import this file — please try again.";
 // Popup for "Import Excel", shared by Travel Request and Travel Claim -- uploads a previously
 // system-generated .xlsx to `apiUrl`, which validates the filename and reads the file's embedded
 // form data (see lib/travel/excel-embed.ts), and hands the result back to the page to populate
-// state. Generic over the header shape (THeader) since Request's and Claim's headers differ (e.g.
-// Claim's travelArea); everything else -- copy structure, upload flow, error handling -- is
-// identical between the two, so this stays one component (mirrors SubmitNoteDialog's own `kind`
-// prop for the same request/claim split).
+// state. Generic over the header shape (THeader) since Request's and Claim's headers differ;
+// everything else -- copy structure, upload flow, error handling -- is identical between the two,
+// so this stays one component (mirrors SubmitNoteDialog's own `kind` prop for the same
+// request/claim split).
 export default function ImportExcelDialog<THeader>({
   open,
   onCancel,

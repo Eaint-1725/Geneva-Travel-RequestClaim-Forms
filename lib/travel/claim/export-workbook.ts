@@ -379,7 +379,6 @@ export async function buildTravelClaimWorkbook(form: TravelClaimForm, unRates: U
       position: form.header.position,
       dutyStation: form.header.dutyStation,
       notes: form.header.notes,
-      travelArea: form.header.travelArea,
     },
     trips: form.trips,
   };

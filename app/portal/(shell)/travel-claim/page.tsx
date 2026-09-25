@@ -26,7 +26,6 @@ import {
   MAX_FILE_BYTES,
   MAX_TOTAL_ATTACH_BYTES,
   OPTIONAL_DOC_KEYS,
-  coverReportRequired,
   formatBytes,
   totalDocumentBytes,
   type OptionalDocKey,
@@ -125,7 +124,6 @@ export default function TravelClaimPage() {
   const form: TravelClaimForm = { header, trips, signature, documents };
   const { errors, isValid } = useMemo(() => validateClaimForm(form, unRates), [header, trips, signature, documents, unRates]);
   const showErrors = interacted;
-  const coverReport = coverReportRequired(header);
   const totalBytes = useMemo(() => totalDocumentBytes(documents), [documents]);
 
   // Every required check not yet "pass" and not explicitly overridden -- see DocScanPanel and
@@ -144,27 +142,21 @@ export default function TravelClaimPage() {
   const reportScanUnavailable = reportScan?.scanAvailable === false;
 
   // Sequential unlock (see the plan this shipped with, §C), applied to each document
-  // independently. Keyed off whether a scan actually RAN, not off required-ness: "optional"
-  // (HIV in-town) governs whether the document must be provided, never whether a provided one may
-  // be invalid. So nothing uploaded passes only when the doc isn't required at all; but once a
-  // scan has run -- required or not -- the gate always depends on its real result, same strict
-  // rule as always (a failing/unconfirmed required check blocks until fixed, removed, or
-  // overridden; scan-outage fallback still needs the manual acknowledgement).
+  // independently. Both Travel Cover and Travel Report are always required, so the gate only
+  // passes once a scan has actually run and cleared (a failing/unconfirmed check blocks until
+  // fixed, removed, or overridden; scan-outage fallback still needs the manual acknowledgement).
   const coverGatePassed = coverScan
     ? coverScanUnavailable
       ? coverScanManualAck
       : coverBlockingChecks.length === 0
-    : !coverReport;
+    : false;
   const reportGatePassed = reportScan
     ? reportScanUnavailable
       ? reportScanManualAck
       : reportBlockingChecks.length === 0
-    : !coverReport;
+    : false;
   // Both must pass for the dependent uploads/submit to unlock (see the plan this shipped with,
-  // §3: "If BOTH the cover and the report are required for the team, BOTH must pass"). No longer
-  // gated on `coverReport` here -- each of the two formulas above already accounts for
-  // required-vs-optional on its own, so this generalizes correctly (an optional doc that was
-  // uploaded and is failing its scan must still block, which `coverReport &&` used to suppress).
+  // §3: "If BOTH the cover and the report are required for the team, BOTH must pass").
   const docsGatePassed = coverGatePassed && reportGatePassed;
   const docsGateActive = !docsGatePassed;
 
@@ -195,15 +187,6 @@ export default function TravelClaimPage() {
   useEffect(() => {
     void loadRates(false);
   }, [loadRates]);
-
-  // Team + Travel area together decide whether Travel Cover/Report are required (see
-  // coverReportRequired). Moving away from HIV must hide the dropdown AND clear its value, so a
-  // stale "out_of_town" choice from a previous HIV selection can't keep blocking submit.
-  useEffect(() => {
-    if (header.team !== "HIV" && header.travelArea) {
-      setHeader((h) => ({ ...h, travelArea: "" }));
-    }
-  }, [header.team, header.travelArea]);
 
   // Removing the Travel Cover file doesn't go through ClaimDocumentField's onFileAccepted (that
   // only fires on accept, not on remove) -- so watch for the field going empty here instead.
@@ -398,13 +381,11 @@ export default function TravelClaimPage() {
   // or a Travel Request export for the same trip (see ImportExcelDialog and the claim's own
   // import route, which accepts both and reports which one via result.sourceDocType). Only the
   // fields the spec calls out get overwritten -- signature/email/documents are left exactly as
-  // they were, since the user redoes those regardless of what's imported. A Travel Request source
-  // has no travelArea (Claim-only, HIV team) -- the route already sends "" for that case, so it's
-  // left for the user to fill in like a blank manual entry. Setting `team` (and `travelArea`
-  // together, atomically) here drives the HIV travel-area dropdown, MAL/HIV Notes, and the
-  // approver block exactly as a manual Team selection would -- all three are already reactively
-  // derived from header state elsewhere in this file, so nothing else needs wiring. Each row's
-  // exchange rate is never part of the imported data either way -- it's always derived live from
+  // they were, since the user redoes those regardless of what's imported. Setting `team` here
+  // drives the MAL/HIV Notes requirement and the approver block exactly as a manual Team selection
+  // would -- both are already reactively derived from header state elsewhere in this file, so
+  // nothing else needs wiring. Each row's exchange rate is never part of the imported data either
+  // way -- it's always derived live from
   // that row's own Date (see resolveRowRate/rateForRow above), so it's already correct for Claim
   // even when the source was Request's single latest-rate form. Submission type depends on WHICH
   // doc type was imported (see result.sourceDocType): a TC re-import is a re-submission of the
@@ -423,7 +404,6 @@ export default function TravelClaimPage() {
       position: result.header.position,
       dutyStation: result.header.dutyStation,
       notes: result.header.notes,
-      travelArea: result.header.travelArea,
     }));
     setTrips(result.trips.length > 0 ? result.trips : [makeEmptyTrip()]);
     const fromRequest = result.sourceDocType === "TR";
@@ -449,22 +429,18 @@ export default function TravelClaimPage() {
     // Attached to the submission payload for HR visibility only (see DocScanStatus) -- never
     // consulted by validation itself, which is why this is built fresh here rather than kept in
     // form state.
-    const coverScanStatus = coverReport
-      ? {
-          scanAvailable: coverScan?.scanAvailable ?? true,
-          overriddenChecks: (coverScan?.checks ?? [])
-            .filter((c) => overriddenCheckIds.has(c.id))
-            .map((c) => `${c.id} — ${c.label}`),
-        }
-      : undefined;
-    const reportScanStatus = coverReport
-      ? {
-          scanAvailable: reportScan?.scanAvailable ?? true,
-          overriddenChecks: (reportScan?.checks ?? [])
-            .filter((c) => reportOverriddenCheckIds.has(c.id))
-            .map((c) => `${c.id} — ${c.label}`),
-        }
-      : undefined;
+    const coverScanStatus = {
+      scanAvailable: coverScan?.scanAvailable ?? true,
+      overriddenChecks: (coverScan?.checks ?? [])
+        .filter((c) => overriddenCheckIds.has(c.id))
+        .map((c) => `${c.id} — ${c.label}`),
+    };
+    const reportScanStatus = {
+      scanAvailable: reportScan?.scanAvailable ?? true,
+      overriddenChecks: (reportScan?.checks ?? [])
+        .filter((c) => reportOverriddenCheckIds.has(c.id))
+        .map((c) => `${c.id} — ${c.label}`),
+    };
 
     setBusy(true);
     try {
@@ -581,26 +557,6 @@ export default function TravelClaimPage() {
           <Field label="Duty Station" error={showErrors ? errors["header.dutyStation"] : undefined} width="w-full lg:w-56">
             <input type="text" className={`${inputCls} w-full`} value={header.dutyStation} onChange={(e) => updateHeader("dutyStation", e.target.value)} data-testid="travel-claim-duty-station" />
           </Field>
-          {header.team === "HIV" && (
-            <Field
-              label="Travel area"
-              error={showErrors ? errors["header.travelArea"] : undefined}
-              hint="Out-of-town travel requires the Travel Cover and Travel Report."
-              hintTestId="travel-claim-travel-area-hint"
-              width="w-full lg:w-72"
-            >
-              <select
-                className={`${inputCls} w-full`}
-                value={header.travelArea}
-                onChange={(e) => updateHeader("travelArea", e.target.value as TravelClaimHeader["travelArea"])}
-                data-testid="travel-claim-travel-area"
-              >
-                <option value="">Select…</option>
-                <option value="in_town">In-town (within duty station)</option>
-                <option value="out_of_town">Out-of-town (outside duty station)</option>
-              </select>
-            </Field>
-          )}
         </div>
 
         <p className="mt-3 text-[11px] text-gray-500" data-testid="travel-claim-rate-status">
@@ -720,7 +676,7 @@ export default function TravelClaimPage() {
           />
           <div>
             <ClaimDocumentField
-              label={`Travel Cover (PDF, ${coverReport ? "required" : "optional for in-town travel"})`}
+              label="Travel Cover (PDF, required)"
               testid="travel-claim-doc-travelCover"
               pdfOnly
               files={documents.travelCover}
@@ -743,7 +699,7 @@ export default function TravelClaimPage() {
           </div>
           <div>
             <ClaimDocumentField
-              label={`Travel Report (PDF, ${coverReport ? "required" : "optional for in-town travel"})`}
+              label="Travel Report (PDF, required)"
               testid="travel-claim-doc-travelReport"
               pdfOnly
               files={documents.travelReport}
